@@ -6,6 +6,9 @@
     <title>Dashboard Monitoring Giat Polisi RW - Ditpolairud Polda Kalsel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -101,6 +104,22 @@
             background: linear-gradient(145deg, rgba(24, 37, 64, 0.88), rgba(17, 34, 64, 0.82));
             border: 1px solid rgba(217, 119, 6, 0.38);
         }
+        /* Tabel Pratinjau Rekap Resmi ala Dokumen Cetak */
+        .rekap-paper-table {
+            border-collapse: collapse;
+            width: 100%;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #000000;
+            background: #FFFFFF;
+        }
+        .rekap-paper-table th,
+        .rekap-paper-table td {
+            border: 1.5px solid #000000;
+            padding: 5px 8px;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.25;
+        }
         ::-webkit-scrollbar {
             width: 8px;
             height: 8px;
@@ -146,20 +165,45 @@
                     </div>
                 </div>
 
-                <!-- Data Connection Status Lamp -->
-                <div class="flex items-center shrink-0">
-                    <div id="dataSourceBadge" title="Memuat data 12 bulan..." aria-label="Status Koneksi Data" class="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-marine-900/90 border border-emerald-400/35 shadow-lg shadow-emerald-500/10">
-                        <span class="relative flex h-3 w-3">
-                            <span id="statusPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span id="statusDot" class="relative inline-flex rounded-full h-3 w-3 bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.95)]"></span>
+                <!-- Header Actions: Tombol Rekap Bulanan & Status Koneksi Live -->
+                <div class="flex items-center gap-2 sm:gap-2.5 shrink-0">
+                    <button type="button" onclick="openRekapModal()" class="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-gold-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-marine-950 font-extrabold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition cursor-pointer">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        <span class="hidden sm:inline">Rekap Giat Bulanan</span>
+                        <span class="sm:hidden">Rekap</span>
+                    </button>
+
+                    <button type="button" id="dataSourceBadge" onclick="connectGoogleSheet(true)" title="Menyinkronkan data Spreadsheet..." aria-label="Status Koneksi Data & Muat Ulang" class="flex items-center gap-2 px-2.5 sm:px-3 py-2 rounded-xl bg-marine-900/90 hover:bg-marine-800 border border-amber-400/40 shadow-lg transition cursor-pointer">
+                        <span class="relative flex h-2.5 w-2.5 shrink-0">
+                            <span id="statusPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span id="statusDot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400"></span>
                         </span>
-                    </div>
+                        <span id="statusText" class="hidden md:inline text-[11px] font-bold text-slate-200">Sinkronisasi...</span>
+                        <svg id="syncIcon" class="w-3.5 h-3.5 text-slate-300 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
         </div>
     </header>
 
     <main class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5 sm:space-y-6">
+
+        <!-- Sync Warning Banner (hanya tampil jika gagal akses Google Sheets) -->
+        <div id="syncWarningBanner" class="hidden rounded-2xl bg-amber-500/15 border border-amber-400/40 px-4 py-3 text-xs text-amber-200 flex items-center justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-2.5">
+                <svg class="w-5 h-5 text-amber-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+                <span id="syncWarningText">Koneksi langsung ke Google Spreadsheet belum berhasil. Pastikan akses Spreadsheet diatur ke "Siapa saja yang memiliki link" (Pelihat).</span>
+            </div>
+            <button type="button" onclick="connectGoogleSheet(true)" class="px-3 py-1.5 rounded-lg bg-amber-400 text-marine-950 font-bold text-xs hover:bg-amber-300 transition cursor-pointer shrink-0">
+                Coba Sinkronkan Lagi
+            </button>
+        </div>
 
         <!-- Filter & Search Control Bar -->
         <section class="glass-card rounded-2xl p-3.5 sm:p-5">
@@ -169,7 +213,7 @@
                     <div class="min-w-0">
                         <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Bulan</label>
                         <select id="filterMonth" onchange="handleFilterChange('month')" class="w-full bg-marine-900 border border-slate-700 hover:border-turq-400/50 focus:border-turq-400 rounded-xl px-3 py-2 text-sm text-white outline-none transition">
-                            <option value="ALL">Semua Bulan (Jan - Des)</option>
+                            <option value="ALL">Semua Bulan (Jan - Des 2026)</option>
                             <option value="2026-01">Januari 2026</option>
                             <option value="2026-02">Februari 2026</option>
                             <option value="2026-03">Maret 2026</option>
@@ -215,9 +259,15 @@
                     </div>
                 </div>
 
-                <!-- Reset Button -->
-                <div class="flex items-center gap-2">
-                    <button type="button" onclick="resetFilters()" class="w-full lg:w-auto px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition cursor-pointer">
+                <!-- Action Buttons: Download Rekap & Reset -->
+                <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                    <button type="button" onclick="openRekapModal()" class="flex-1 lg:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-turq-400/15 hover:bg-turq-400 text-turq-400 hover:text-marine-950 text-xs font-bold border border-turq-400/40 transition cursor-pointer">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        <span>Download Rekap Bulanan</span>
+                    </button>
+                    <button type="button" onclick="resetFilters()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition cursor-pointer">
                         Reset Filter
                     </button>
                 </div>
@@ -375,8 +425,8 @@
             <div class="p-3.5 sm:p-5 bg-marine-900/90 border-b border-slate-800 flex items-center justify-between gap-3 sm:gap-4">
                 <div class="flex items-center gap-3 sm:gap-4 min-w-0">
                     <div class="relative w-16 h-20 sm:w-24 sm:h-32 rounded-xl sm:rounded-2xl overflow-hidden border-2 border-turq-400 bg-marine-950 shrink-0 shadow-lg">
-                        <img id="modalAvatarBg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="" aria-hidden="true" class="absolute inset-0 w-full h-full object-cover blur-md opacity-30 scale-110 pointer-events-none">
-                        <img id="modalAvatar" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Foto Personel" class="relative z-10 w-full h-full object-contain">
+                        <img id="modalAvatarBg" referrerpolicy="no-referrer" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="" aria-hidden="true" class="absolute inset-0 w-full h-full object-cover blur-md opacity-30 scale-110 pointer-events-none">
+                        <img id="modalAvatar" referrerpolicy="no-referrer" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Foto Personel" class="relative z-10 w-full h-full object-contain">
                     </div>
                     <div class="min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
@@ -429,20 +479,159 @@
         </div>
     </div>
 
+    <!-- MODAL 2: PRATINJAU & DOWNLOAD REKAP GIAT BULANAN (SESUAI CONTOH FORMAT POLDA KALSEL) -->
+    <div id="rekapModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-2.5 sm:p-4">
+        <div class="glass-card w-full max-w-5xl rounded-2xl border border-gold-400/40 shadow-2xl overflow-hidden max-h-[94vh] flex flex-col">
+            <!-- Modal Header -->
+            <div class="p-3.5 sm:p-5 bg-marine-900/95 border-b border-slate-800 flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-gold-400/20 text-gold-400 border border-gold-400/40 uppercase">Format Resmi</span>
+                        <span class="text-xs text-slate-400">Siap Cetak A4 Utuh (Tanpa Kolom KET Terpotong)</span>
+                    </div>
+                    <h3 class="text-base sm:text-lg font-extrabold text-white mt-0.5">Download Rekap Giat Bulanan Polisi RW</h3>
+                </div>
+                <button type="button" onclick="closeRekapModal()" aria-label="Tutup" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer shrink-0">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Pengaturan & Tombol Ekspor -->
+            <div class="p-3.5 sm:p-4 bg-marine-950/80 border-b border-slate-800 space-y-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Periode Bulan Laporan</label>
+                        <select id="rekapMonthSelect" onchange="handleRekapMonthChange()" class="w-full bg-marine-900 border border-slate-700 focus:border-turq-400 rounded-xl px-3 py-1.5 text-xs font-semibold text-white outline-none">
+                            <option value="2026-01">Januari 2026</option>
+                            <option value="2026-02">Februari 2026</option>
+                            <option value="2026-03">Maret 2026</option>
+                            <option value="2026-04">April 2026</option>
+                            <option value="2026-05">Mei 2026</option>
+                            <option value="2026-06">Juni 2026</option>
+                            <option value="2026-07">Juli 2026</option>
+                            <option value="2026-08">Agustus 2026</option>
+                            <option value="2026-09">September 2026</option>
+                            <option value="2026-10">Oktober 2026</option>
+                            <option value="2026-11">November 2026</option>
+                            <option value="2026-12">Desember 2026</option>
+                            <option value="ALL">Semua Bulan (Jan - Des 2026)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Judul Baris 1</label>
+                        <input type="text" id="rekapTitleLine1" oninput="renderRekapPreview()" value="REKAP JUMLAH KEGIATAN POLISI RW DITPOLAIRUD" class="w-full bg-marine-900 border border-slate-700 focus:border-turq-400 rounded-xl px-3 py-1.5 text-xs font-semibold text-white outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Judul Baris 2</label>
+                        <input type="text" id="rekapTitleLine2" oninput="renderRekapPreview()" value="BULAN NOVEMBER 2026 POLDA KALSEL" class="w-full bg-marine-900 border border-slate-700 focus:border-turq-400 rounded-xl px-3 py-1.5 text-xs font-semibold text-white outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Header Kolom Kesatuan</label>
+                        <input type="text" id="rekapUnitHeader" oninput="renderRekapPreview()" value="DITPOLAIRUD POLDA KALSEL" class="w-full bg-marine-900 border border-slate-700 focus:border-turq-400 rounded-xl px-3 py-1.5 text-xs font-semibold text-white outline-none">
+                    </div>
+                </div>
+
+                <!-- Legend & Download Buttons -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                    <div class="flex items-center gap-3 flex-wrap text-[11px] text-slate-300">
+                        <span class="inline-flex items-center gap-1.5">
+                            <span class="w-3.5 h-3.5 rounded-sm border border-black" style="background:#FFFF00"></span>
+                            <span>Memenuhi Target (&ge;12)</span>
+                        </span>
+                        <span class="inline-flex items-center gap-1.5">
+                            <span class="w-3.5 h-3.5 rounded-sm border border-black" style="background:#FF0000"></span>
+                            <span>Kurang Target (&lt;12)</span>
+                        </span>
+                        <span class="inline-flex items-center gap-1.5">
+                            <span class="w-3.5 h-3.5 rounded-sm border border-black" style="background:#00B0F0"></span>
+                            <span>Keterangan Khusus (DIKJUR/SAKIT/dll)</span>
+                        </span>
+                        <span class="text-slate-400 italic hidden lg:inline">• Klik kolom KET di tabel untuk isi/ubah keterangan sebelum download</span>
+                    </div>
+
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button type="button" id="btnDownloadExcel" onclick="downloadRekapExcel()" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-marine-950 font-extrabold text-xs shadow-lg shadow-emerald-500/20 transition cursor-pointer">
+                            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 10v6m0 0l-3-3m3 3l3-3M5 20h14a2 2 0 002-2V8l-6-6H5a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                            </svg>
+                            <span>Download Excel (.xlsx)</span>
+                        </button>
+                        <button type="button" id="btnDownloadPdf" onclick="downloadRekapPdf()" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-extrabold text-xs shadow-lg shadow-rose-500/20 transition cursor-pointer">
+                            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                            </svg>
+                            <span>Download PDF (.pdf)</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Area Pratinjau Kertas Laporan -->
+            <div class="p-3 sm:p-5 overflow-y-auto bg-slate-200/95 flex-1">
+                <div class="max-w-3xl mx-auto bg-white shadow-xl rounded-sm p-4 sm:p-7 text-black overflow-x-auto">
+                    <div class="text-center pb-1.5 mb-3 border-b-[2.5px] border-black" style="font-family: Arial, Helvetica, sans-serif;">
+                        <div id="previewHeader1" class="text-sm sm:text-base font-extrabold uppercase tracking-tight text-black">REKAP JUMLAH KEGIATAN POLISI RW DITPOLAIRUD</div>
+                        <div id="previewHeader2" class="text-sm sm:text-base font-extrabold uppercase tracking-tight text-black mt-0.5">BULAN NOVEMBER 2026 POLDA KALSEL</div>
+                    </div>
+                    <table class="rekap-paper-table">
+                        <thead>
+                            <tr style="background:#00FFFF;">
+                                <th class="w-12 text-center">NO</th>
+                                <th id="previewUnitTh" class="text-center">DITPOLAIRUD POLDA KALSEL</th>
+                                <th class="w-28 text-center">PANGKAT</th>
+                                <th class="w-24 text-center">JUMLAH</th>
+                                <th class="w-32 text-center">KET</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rekapPreviewBody"></tbody>
+                        <tfoot id="rekapPreviewFoot"></tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // =========================================================================
-        // 1. KONFIGURASI SPREADSHEET DITPOLAIRUD POLDA KALSEL & MULTI-BULAN
+        // 1. KONFIGURASI SPREADSHEET DITPOLAIRUD POLDA KALSEL & PEMETAAN GID RESMI
         // =========================================================================
         const TARGET_MINIMAL_GIAT = 12;
         const DEFAULT_SPREADSHEET_ID = "12uKyeL2xwGv_Fa9Yv2wXrOlNvCrCwpyDXW107pdFRu0";
-        const ACTIVE_DATE = new Date();
-        const ACTIVE_YEAR = ACTIVE_DATE.getFullYear();
-        const ACTIVE_MONTH_INDEX = ACTIVE_DATE.getMonth(); // 0..11
-        function getCurrentYearMonth() {
-            const now = new Date();
-            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        }
-        const DEFAULT_YEAR_MONTH = getCurrentYearMonth();
+        const WORKBOOK_YEAR = 2026;
+
+        // Peta GID eksak setiap tab pada Spreadsheet 'ABSENSI POLISI-RW DIT 2026'
+        const SHEET_GID_MAP = {
+            "JANUARI": "0",
+            "FEBRUARI": "712929085",
+            "MARET": "2009379316",
+            "APRIL": "1220610888",
+            "MEI": "86533820",
+            "JUNI": "296335480",
+            "JULI": "27029886",
+            "AGUSTUS": "301621456",
+            "SEPTEMBER": "479438156",
+            "OKTOBER": "1622939351",
+            "NOVEMBER": "322239098",
+            "DESEMBER": "288401973",
+            "FOTO": "1757088990"
+        };
+
+        const GID_TO_YEAR_MONTH = {
+            "0": `${WORKBOOK_YEAR}-01`,
+            "712929085": `${WORKBOOK_YEAR}-02`,
+            "2009379316": `${WORKBOOK_YEAR}-03`,
+            "1220610888": `${WORKBOOK_YEAR}-04`,
+            "86533820": `${WORKBOOK_YEAR}-05`,
+            "296335480": `${WORKBOOK_YEAR}-06`,
+            "27029886": `${WORKBOOK_YEAR}-07`,
+            "301621456": `${WORKBOOK_YEAR}-08`,
+            "479438156": `${WORKBOOK_YEAR}-09`,
+            "1622939351": `${WORKBOOK_YEAR}-10`,
+            "322239098": `${WORKBOOK_YEAR}-11`,
+            "288401973": `${WORKBOOK_YEAR}-12`
+        };
 
         const MONTH_NAMES_ID = [
             "JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI",
@@ -453,187 +642,950 @@
             "Juli", "Agustus", "September", "Oktober", "November", "Desember"
         ];
         const SHEET_TAB_CANDIDATES = {
-            "JANUARI": ["JANUARI", "JAN", `JANUARI ${ACTIVE_YEAR}`],
-            "FEBRUARI": ["FEBRUARI", "FEB", `FEBRUARI ${ACTIVE_YEAR}`],
-            "MARET": ["MARET", "MAR", `MARET ${ACTIVE_YEAR}`],
-            "APRIL": ["APRIL", "APR", `APRIL ${ACTIVE_YEAR}`],
-            "MEI": ["MEI", `MEI ${ACTIVE_YEAR}`],
-            "JUNI": ["JUNI", "JUN", `JUNI ${ACTIVE_YEAR}`],
-            "JULI": ["JULI", "JUL", `JULI ${ACTIVE_YEAR}`],
-            "AGUSTUS": ["AGUSTUS", "AGU", `AGUSTUS ${ACTIVE_YEAR}`],
-            "SEPTEMBER": ["SEPTEMBER", "SEP", "SEPT", `SEPTEMBER ${ACTIVE_YEAR}`],
-            "OKTOBER": ["OKTOBER", "OKT", "OCT", `OKTOBER ${ACTIVE_YEAR}`],
-            "NOVEMBER": ["NOVEMBER", "NOV", `NOVEMBER ${ACTIVE_YEAR}`],
-            "DESEMBER": ["DESEMBER", "DES", "DEC", `DESEMBER ${ACTIVE_YEAR}`]
+            "JANUARI": ["JANUARI", "JAN", `JANUARI ${WORKBOOK_YEAR}`],
+            "FEBRUARI": ["FEBRUARI", "FEB", `FEBRUARI ${WORKBOOK_YEAR}`],
+            "MARET": ["MARET", "MAR", `MARET ${WORKBOOK_YEAR}`],
+            "APRIL": ["APRIL", "APR", `APRIL ${WORKBOOK_YEAR}`],
+            "MEI": ["MEI", `MEI ${WORKBOOK_YEAR}`],
+            "JUNI": ["JUNI", "JUN", `JUNI ${WORKBOOK_YEAR}`],
+            "JULI": ["JULI", "JUL", `JULI ${WORKBOOK_YEAR}`],
+            "AGUSTUS": ["AGUSTUS", "AGU", `AGUSTUS ${WORKBOOK_YEAR}`],
+            "SEPTEMBER": ["SEPTEMBER", "SEP", "SEPT", `SEPTEMBER ${WORKBOOK_YEAR}`],
+            "OKTOBER": ["OKTOBER", "OKT", "OCT", `OKTOBER ${WORKBOOK_YEAR}`],
+            "NOVEMBER": ["NOVEMBER", "NOV", `NOVEMBER ${WORKBOOK_YEAR}`],
+            "DESEMBER": ["DESEMBER", "DES", "DEC", `DESEMBER ${WORKBOOK_YEAR}`]
         };
 
-        // Status sumber data per bulan ('fallback' | 'live')
+        function getInitialYearMonth() {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const qMonth = params.get('month');
+                if (qMonth && (/^\d{4}-\d{2}$/.test(qMonth) || qMonth === 'ALL')) return qMonth;
+                const qGid = params.get('gid') || (window.location.hash.match(/gid=(\d+)/) || [])[1];
+                if (qGid && GID_TO_YEAR_MONTH[qGid]) return GID_TO_YEAR_MONTH[qGid];
+            } catch (_) {}
+            const now = new Date();
+            if (now.getFullYear() === WORKBOOK_YEAR) {
+                return `${WORKBOOK_YEAR}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            }
+            return `${WORKBOOK_YEAR}-11`;
+        }
+
+        // Status sumber data per bulan ('pending' | 'live' | 'offline')
         const monthSourceStatus = {};
-        MONTH_NAMES_ID.forEach(m => { monthSourceStatus[m] = 'fallback'; });
-        let fotoTabStatus = 'fallback';
+        MONTH_NAMES_ID.forEach(m => { monthSourceStatus[m] = 'pending'; });
+        let fotoTabStatus = 'pending';
 
-        // 85 Personel Resmi Ditpolairud Polda Kalsel (REKAP POLISI RW DIT SEPTEMBER 2026)
-        const SEPTEMBER_OFFICIAL_85 = [
-            { no: 1, nama: "WAHYUNI, S.H", pangkat: "BRIPDA", jumlah: 239, jabatan: "KP XIII-2003", ket: "", nrp: "89010001" },
-            { no: 2, nama: "PAULUS RAHAIL, S.H", pangkat: "AIPTU", jumlah: 194, jabatan: "DAN KP XIII-1013", ket: "", nrp: "89010002" },
-            { no: 3, nama: "M.NOR EFFENDI, S.H", pangkat: "BRIPDA", jumlah: 81, jabatan: "KP XIII-1016", ket: "", nrp: "89010003" },
-            { no: 4, nama: "ADNAN", pangkat: "AIPDA", jumlah: 74, jabatan: "DAN KP XIII-1007", ket: "", nrp: "89010004" },
-            { no: 5, nama: "MARCHEL TARIGAN", pangkat: "BRIPTU", jumlah: 61, jabatan: "KP XIII-1007", ket: "", nrp: "89010005" },
-            { no: 6, nama: "M. ZAINUDDIN, S.H", pangkat: "BRIPKA", jumlah: 44, jabatan: "DAN KP XIII-1016", ket: "", nrp: "89010006" },
-            { no: 7, nama: "ABADI HUTAPEA", pangkat: "BRIPTU", jumlah: 43, jabatan: "KP XIII-2005", ket: "", nrp: "89010007" },
-            { no: 8, nama: "RIFKI ADITIA", pangkat: "BHARATU", jumlah: 40, jabatan: "KP XIII-2005", ket: "", nrp: "89010008" },
-            { no: 9, nama: "PRIYO SAMBODO, S.H.", pangkat: "BRIPKA", jumlah: 40, jabatan: "DAN KP XIII-1009", ket: "", nrp: "89010009" },
-            { no: 10, nama: "MAWAN ADI P.", pangkat: "BRIPKA", jumlah: 37, jabatan: "DAN KP XIII-2005", ket: "", nrp: "89010010" },
-            { no: 11, nama: "B. NAPITUPULU", pangkat: "AIPDA", jumlah: 33, jabatan: "DAN KP XIII-1005", ket: "", nrp: "89010011" },
-            { no: 12, nama: "SAIFUDIN SUHRI, S.H.", pangkat: "BRIPKA", jumlah: 33, jabatan: "DAN KP XIII-2002", ket: "", nrp: "89010012" },
-            { no: 13, nama: "MUAMMAR ANNOR.A", pangkat: "BRIPTU", jumlah: 31, jabatan: "KP XIII-2005", ket: "", nrp: "89010013" },
-            { no: 14, nama: "LAODE KAIMUDIN", pangkat: "BRIPKA", jumlah: 30, jabatan: "DAN KP XIII-2006", ket: "", nrp: "89010014" },
-            { no: 15, nama: "M.ANDRE PRAYOGA", pangkat: "BRIPDA", jumlah: 29, jabatan: "KP XIII-1004", ket: "", nrp: "89010015" },
-            { no: 16, nama: "IWAN MAULANA", pangkat: "BRIPKA", jumlah: 29, jabatan: "DAN KP XIII-1003", ket: "", nrp: "89010016" },
-            { no: 17, nama: "ZAINAL", pangkat: "BRIPKA", jumlah: 29, jabatan: "DAN KP XIII-2004", ket: "", nrp: "89010017" },
-            { no: 18, nama: "MATIAS", pangkat: "AIPDA", jumlah: 28, jabatan: "DAN KP XIII-1010", ket: "", nrp: "89010018" },
-            { no: 19, nama: "MEKAR JAYA SIDABUTAR", pangkat: "BRIPDA", jumlah: 28, jabatan: "KP XIII-2006", ket: "", nrp: "89010019" },
-            { no: 20, nama: "ERWIN ADIE S., A.Md", pangkat: "AIPDA", jumlah: 28, jabatan: "KP XIII-1008", ket: "", nrp: "89010020" },
-            { no: 21, nama: "ADITYA ATWIN. P", pangkat: "BRIPTU", jumlah: 27, jabatan: "KP XIII-1013", ket: "", nrp: "89010021" },
-            { no: 22, nama: "EDDY SUHENDRA, S.E", pangkat: "BRIPKA", jumlah: 27, jabatan: "KP MARTAPURA", ket: "", nrp: "89010022" },
-            { no: 23, nama: "PRAKAS ADITYA", pangkat: "BRIPDA", jumlah: 26, jabatan: "KP XIII-1007", ket: "", nrp: "89010023" },
-            { no: 24, nama: "ARIF SUGIARTO", pangkat: "BRIPKA", jumlah: 26, jabatan: "KP XIII-2003", ket: "", nrp: "89010024" },
-            { no: 25, nama: "BAMBANG SYAHPUTRA", pangkat: "AIPDA", jumlah: 25, jabatan: "DAN KP XIII-1015", ket: "", nrp: "89010025" },
-            { no: 26, nama: "CAHYO SURYO.W", pangkat: "BHARAKA", jumlah: 24, jabatan: "KP XIII-2003", ket: "", nrp: "89010026" },
-            { no: 27, nama: "DODY ALAMSYAH", pangkat: "AIPDA", jumlah: 24, jabatan: "DAN KP XIII-1008", ket: "", nrp: "89010027" },
-            { no: 28, nama: "DWI WAHYU", pangkat: "AIPDA", jumlah: 24, jabatan: "KP BARITO", ket: "", nrp: "89010028" },
-            { no: 29, nama: "AHMADANI PRATAMA", pangkat: "BRIPDA", jumlah: 23, jabatan: "KP XIII-1010", ket: "", nrp: "89010029" },
-            { no: 30, nama: "ROBBY ZIDNA I, S.H., M.H", pangkat: "BRIPKA", jumlah: 23, jabatan: "KP XIII-2006", ket: "", nrp: "89010030" },
-            { no: 31, nama: "TONI HENDATMOKO, S.H.", pangkat: "BRIPTU", jumlah: 23, jabatan: "KP XIII-2006", ket: "", nrp: "89010031" },
-            { no: 32, nama: "DIDIK SUDARSONO", pangkat: "BRIPKA", jumlah: 23, jabatan: "KP XIII-1014", ket: "", nrp: "89010032" },
-            { no: 33, nama: "M. ZAKI RAHMAN", pangkat: "BRIPDA", jumlah: 22, jabatan: "KP XIII-1014", ket: "", nrp: "89010033" },
-            { no: 34, nama: "ADE PRAYOGA", pangkat: "BRIPKA", jumlah: 21, jabatan: "DAN KP XIII-2003", ket: "", nrp: "89010034" },
-            { no: 35, nama: "RUSLI, S.E", pangkat: "IPDA", jumlah: 21, jabatan: "DAN KP BARITO", ket: "", nrp: "89010035" },
-            { no: 36, nama: "RIYAN EFFENDI S.H.", pangkat: "BRIGADIR", jumlah: 20, jabatan: "KP XIII-2005", ket: "", nrp: "89010036" },
-            { no: 37, nama: "ZOSSA PANJI K.", pangkat: "BRIPTU", jumlah: 20, jabatan: "KP XIII-1017", ket: "", nrp: "89010037" },
-            { no: 38, nama: "ALIF MAULANA H.", pangkat: "BRIPDA", jumlah: 19, jabatan: "KP XIII-1008", ket: "", nrp: "89010038" },
-            { no: 39, nama: "ARIE FITRIADI", pangkat: "BRIPKA", jumlah: 19, jabatan: "KP BARITO", ket: "", nrp: "89010039" },
-            { no: 40, nama: "M. ANDHIKA KUSUMA", pangkat: "BRIPDA", jumlah: 18, jabatan: "KP XIII-1010", ket: "", nrp: "89010040" },
-            { no: 41, nama: "FRANSISCUS P. P MANALU", pangkat: "BRIPKA", jumlah: 18, jabatan: "DAN KP XIII-1017", ket: "", nrp: "89010041" },
-            { no: 42, nama: "M. FIKRI FADILLAH", pangkat: "BRIPTU", jumlah: 18, jabatan: "KP XIII-1005", ket: "", nrp: "89010042" },
-            { no: 43, nama: "FERRY YULIA S.H", pangkat: "BRIPKA", jumlah: 18, jabatan: "KP BARITO", ket: "", nrp: "89010043" },
-            { no: 44, nama: "FIRMAN ADIYANSYAH", pangkat: "BRIPKA", jumlah: 16, jabatan: "DAN KP XIII-1004", ket: "", nrp: "89010044" },
-            { no: 45, nama: "MUH. RIF'AT MEDIANTO", pangkat: "BRIPTU", jumlah: 16, jabatan: "KP XIII-1013", ket: "", nrp: "89010045" },
-            { no: 46, nama: "M. IHSAN FITRIAN", pangkat: "BRIPDA", jumlah: 16, jabatan: "KP XIII-2009", ket: "", nrp: "89010046" },
-            { no: 47, nama: "DAVI ARITONANG, S.H.", pangkat: "BRIPDA", jumlah: 15, jabatan: "KP XIII-1017", ket: "", nrp: "89010047" },
-            { no: 48, nama: "M. EKO SAPUTRA, S.H.", pangkat: "BRIPTU", jumlah: 15, jabatan: "KP XIII-1003", ket: "", nrp: "89010048" },
-            { no: 49, nama: "WIRA AKBARI, S.H", pangkat: "BRIPTU", jumlah: 15, jabatan: "KP XIII-1005", ket: "", nrp: "89010049" },
-            { no: 50, nama: "M. ALI HUSIN", pangkat: "BRIPDA", jumlah: 15, jabatan: "KP XIII-2007", ket: "", nrp: "89010050" },
-            { no: 51, nama: "RAUDANI MISFALAH", pangkat: "BRIPTU", jumlah: 15, jabatan: "KP XIII-1015", ket: "", nrp: "89010051" },
-            { no: 52, nama: "RAHMAD WIRANTO", pangkat: "BRIPDA", jumlah: 13, jabatan: "KP XIII-1003", ket: "", nrp: "89010052" },
-            { no: 53, nama: "LINGGAR, F.P, S.H.", pangkat: "IPDA", jumlah: 13, jabatan: "DAN KP MARTAPURA", ket: "", nrp: "89010053" },
-            { no: 54, nama: "VERDI SAPUTRA", pangkat: "ABRIPDA", jumlah: 13, jabatan: "KP MARTAPURA", ket: "", nrp: "89010054" },
-            { no: 55, nama: "WAHYU SUPRIYATNO,S.H", pangkat: "BRIPKA", jumlah: 13, jabatan: "KP XIII-2004", ket: "", nrp: "89010055" },
-            { no: 56, nama: "M. SEPTAWAN HADINATA", pangkat: "BRIGADIR", jumlah: 13, jabatan: "KP BARITO", ket: "", nrp: "89010056" },
-            { no: 57, nama: "REZA PAHLEVY", pangkat: "BRIPDA", jumlah: 13, jabatan: "KP BARITO", ket: "", nrp: "89010057" },
-            { no: 58, nama: "M. AGUS HERMANSYAH", pangkat: "BRIPDA", jumlah: 12, jabatan: "KP XIII-1004", ket: "", nrp: "89010058" },
-            { no: 59, nama: "BAYU ANDIKA", pangkat: "BRIPTU", jumlah: 12, jabatan: "KP XIII-1003", ket: "", nrp: "89010059" },
-            { no: 60, nama: "YUDI ERTANTO", pangkat: "BRIPKA", jumlah: 12, jabatan: "KP XIII-2002", ket: "", nrp: "89010060" },
-            { no: 61, nama: "RIZKY JANUAR", pangkat: "BRIPKA", jumlah: 12, jabatan: "KP XIII-1013", ket: "", nrp: "89010061" },
-            { no: 62, nama: "DENDY CAHYA EKA S., S.H", pangkat: "BRIPKA", jumlah: 12, jabatan: "KP XIII-2007", ket: "", nrp: "89010062" },
-            { no: 63, nama: "HERU SANTOSO.", pangkat: "BRIPKA", jumlah: 12, jabatan: "KP MARTAPURA", ket: "", nrp: "89010063" },
-            { no: 64, nama: "ARYA INDRA K.", pangkat: "BRIPKA", jumlah: 12, jabatan: "KP XIII-1008", ket: "", nrp: "89010064" },
-            { no: 65, nama: "FATHUL TRISTANTO", pangkat: "BHARATU", jumlah: 12, jabatan: "KP XIII-1001", ket: "", nrp: "89010065" },
-            { no: 66, nama: "M. IMAM ALMADANI", pangkat: "BRIPTU", jumlah: 12, jabatan: "KP XIII-1011", ket: "", nrp: "89010066" },
-            { no: 67, nama: "M. KASPUL ANWAR", pangkat: "BHARAKA", jumlah: 12, jabatan: "KPC XIII-2008", ket: "", nrp: "89010067" },
-            { no: 68, nama: "SYARIF HIDAYATTULLOH", pangkat: "BRIPDA", jumlah: 11, jabatan: "KP XIII-2002", ket: "", nrp: "89010068" },
-            { no: 69, nama: "CHALVIN ANUGERAH", pangkat: "BRIGADIR", jumlah: 10, jabatan: "KP XIII-2007", ket: "", nrp: "89010069" },
-            { no: 70, nama: "M. ADDINUR", pangkat: "BHARADA", jumlah: 7, jabatan: "KP XIII-1007", ket: "", nrp: "89010070" },
-            { no: 71, nama: "AZHAR HAMAMI", pangkat: "BRIPTU", jumlah: 5, jabatan: "KP XIII-2003", ket: "", nrp: "89010071" },
-            { no: 72, nama: "JOHNNY FRANS JAYA M S.H", pangkat: "BRIPKA", jumlah: 5, jabatan: "KP XIII-2002", ket: "", nrp: "89010072" },
-            { no: 73, nama: "RIZKY CAHYADI, S.H.", pangkat: "ABRIPDA", jumlah: 1, jabatan: "KP XIII-1010", ket: "", nrp: "89010073" },
-            { no: 74, nama: "APIP DWI SAPUTRA", pangkat: "BHARAKA", jumlah: 1, jabatan: "KP XIII-1009", ket: "", nrp: "89010074" },
-            { no: 75, nama: "M. MAULANA IBRAHIM", pangkat: "BHARADA", jumlah: 0, jabatan: "KP MARTAPURA", ket: "", nrp: "89010075" },
-            { no: 76, nama: "FRIEZA MUSAF.I.D", pangkat: "BRIPDA", jumlah: 0, jabatan: "KP XIII-2009", ket: "", nrp: "89010076" },
-            { no: 77, nama: "IMAM SUCIPTO", pangkat: "AIPTU", jumlah: 6, jabatan: "DAN KP XIII-1014", ket: "", nrp: "89010077" },
-            { no: 78, nama: "M. RIZKY HARIYADI", pangkat: "BRIPDA", jumlah: 9, jabatan: "KP XIII-1016", ket: "KARHUTLA", nrp: "89010078" },
-            { no: 79, nama: "M. RICKO DARMAWAN", pangkat: "BRIPDA", jumlah: 5, jabatan: "KP XIII-2006", ket: "KARHUTLA", nrp: "89010079" },
-            { no: 80, nama: "M. ARAFI", pangkat: "BHARADA", jumlah: 11, jabatan: "KP XIII-2002", ket: "DIKJUR", nrp: "89010080" },
-            { no: 81, nama: "DWI RAMADHANI", pangkat: "BHARADA", jumlah: 1, jabatan: "KP XIII-2004", ket: "DIKJUR", nrp: "89010081" },
-            { no: 82, nama: "AGUS SAPUTRA", pangkat: "ABRIPDA", jumlah: 0, jabatan: "KP XIII-1002", ket: "DIKJUR", nrp: "89010082" },
-            { no: 83, nama: "RICKY GUNAWAN", pangkat: "BRIPTU", jumlah: 11, jabatan: "KP XIII-2004", ket: "DRIVER", nrp: "89010083" },
-            { no: 84, nama: "M. RUDI RESNAWAN", pangkat: "BRIPDA", jumlah: 0, jabatan: "KP MARTAPURA", ket: "DRIVER", nrp: "89010084" },
-            { no: 85, nama: "H. JAFAR, S.E.", pangkat: "AIPDA", jumlah: 0, jabatan: "DAN KP XIII-2007", ket: "DINAS", nrp: "89010085" }
-        ];
+        // Snapshot terverifikasi November 2026 (gid=322239098, 85 Personel, 2.665 Giat + 36 Link Foto Resmi)
+        // Digunakan HANYA sebagai tampilan awal instan sebelum sinkronisasi live 12 bulan selesai (TANPA generator angka acak!)
+        const VERIFIED_NOVEMBER_85 = [
+            {
+                        "no": 1,
+                        "nama": "ADNAN",
+                        "pangkat": "AIPDA",
+                        "jumlah": 10,
+                        "jabatan": "DAN KP XIII-1007",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010001"
+            },
+            {
+                        "no": 2,
+                        "nama": "MARCHEL TARIGAN",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-1007",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010002"
+            },
+            {
+                        "no": 3,
+                        "nama": "PRAKAS ADITYA",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 8,
+                        "jabatan": "KP XIII-1007",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010003"
+            },
+            {
+                        "no": 4,
+                        "nama": "M. ADDINUR",
+                        "pangkat": "BHARADA",
+                        "jumlah": 24,
+                        "jabatan": "KP XIII-1007",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010004"
+            },
+            {
+                        "no": 5,
+                        "nama": "MAWAN ADI P.",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 19,
+                        "jabatan": "DAN KP XIII-2005",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/11xA62PFkxhI_FLZrW-MZTUkBzs6he9XP/view?usp=sharing",
+                        "nrp": "89010005"
+            },
+            {
+                        "no": 6,
+                        "nama": "RIYAN EFFENDI S.H.",
+                        "pangkat": "BRIGADIR",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-2005",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010006"
+            },
+            {
+                        "no": 7,
+                        "nama": "MUAMMAR ANNOR.A",
+                        "pangkat": "BRIGADIR",
+                        "jumlah": 20,
+                        "jabatan": "KP XIII-2005",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1-niVuBnTgBQdNGxcwanTXGPlz1PGNY3b/view?usp=sharing",
+                        "nrp": "89010007"
+            },
+            {
+                        "no": 8,
+                        "nama": "ABADI HUTAPEA",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 6,
+                        "jabatan": "KP XIII-2005",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1DYSo6L0gvRPiiYB-hD2GnQ57oLFb2yzy/view?usp=sharing",
+                        "nrp": "89010008"
+            },
+            {
+                        "no": 9,
+                        "nama": "RIFKI ADITIA",
+                        "pangkat": "BHARATU",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-2005",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010009"
+            },
+            {
+                        "no": 10,
+                        "nama": "MATIAS",
+                        "pangkat": "AIPDA",
+                        "jumlah": 28,
+                        "jabatan": "DAN KP XIII-1010",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1tQhtTIAYQFm86fDnFVPB7WmFGpMv03yZ/view?usp=sharing",
+                        "nrp": "89010010"
+            },
+            {
+                        "no": 11,
+                        "nama": "AHMADANI PRATAMA",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 19,
+                        "jabatan": "KP XIII-1010",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1z3SlDJcbhoSlQRJ0GFdQdHZLc69ijy1r/view?usp=sharing",
+                        "nrp": "89010011"
+            },
+            {
+                        "no": 12,
+                        "nama": "M. ANDHIKA KUSUMA",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 13,
+                        "jabatan": "KP XIII-1010",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1uhwI5LGTu1TZ6agOZTwcbUzGvJrv67h3/view?usp=sharing",
+                        "nrp": "89010012"
+            },
+            {
+                        "no": 13,
+                        "nama": "RIZKY CAHYADI, S.H.",
+                        "pangkat": "ABRIPDA",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-1010",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010013"
+            },
+            {
+                        "no": 14,
+                        "nama": "ADE PRAYOGA",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 0,
+                        "jabatan": "DAN KP XIII-2003",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010014"
+            },
+            {
+                        "no": 15,
+                        "nama": "ARIF SUGIARTO",
+                        "pangkat": "BRIGADIR",
+                        "jumlah": 14,
+                        "jabatan": "KP XIII-2003",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010015"
+            },
+            {
+                        "no": 16,
+                        "nama": "AZHAR HAMAMI",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 7,
+                        "jabatan": "KP XIII-2003",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010016"
+            },
+            {
+                        "no": 17,
+                        "nama": "WAHYUNI, S.H",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 385,
+                        "jabatan": "KP XIII-2003",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1tTqZjQQeUc3GGtVPi0QumnZQ-YDUXmHM/view?usp=sharing",
+                        "nrp": "89010017"
+            },
+            {
+                        "no": 18,
+                        "nama": "CAHYO SURYO .W",
+                        "pangkat": "BHARAKA",
+                        "jumlah": 13,
+                        "jabatan": "KP XIII-2003",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010018"
+            },
+            {
+                        "no": 19,
+                        "nama": "LAODE KAIMUDIN",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 23,
+                        "jabatan": "DAN KP XIII-2006",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1HiOQE_SPREluGz-pQNPwkwjj8TnMSzHU/view?usp=sharing",
+                        "nrp": "89010019"
+            },
+            {
+                        "no": 20,
+                        "nama": "ROBBY ZIDNA I, S.H., M.H",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 21,
+                        "jabatan": "KP XIII-2006",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1VkY7yEqWdxF2O3eX890ZkFR7nPkoUM9c/view?usp=sharing",
+                        "nrp": "89010020"
+            },
+            {
+                        "no": 21,
+                        "nama": "TONI HENDATMOKO, S.H.",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 46,
+                        "jabatan": "KP XIII-2006",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1KvuQmOXV0OY0Ejb7eu7wnqrRYOVm4F6r/view?usp=sharing",
+                        "nrp": "89010021"
+            },
+            {
+                        "no": 22,
+                        "nama": "M. RICKO DARMAWAN",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 17,
+                        "jabatan": "KP XIII-2006",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1qYO51XHdMBQTqOQGFijdPCj7eQBk5ZcC/view?usp=sharing",
+                        "nrp": "89010022"
+            },
+            {
+                        "no": 23,
+                        "nama": "MEKAR JAYA SIDABUTAR",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 22,
+                        "jabatan": "KP XIII-2006",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1m6EzRTr0c2BDrXpm6e4fsVjCaVzTuRUz/view?usp=sharing",
+                        "nrp": "89010023"
+            },
+            {
+                        "no": 24,
+                        "nama": "FIRMAN ADIYANSYAH",
+                        "pangkat": "AIPDA",
+                        "jumlah": 26,
+                        "jabatan": "DAN KP XIII-1004",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010024"
+            },
+            {
+                        "no": 25,
+                        "nama": "M. AGUS HERMANSYAH",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 25,
+                        "jabatan": "KP XIII-1004",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010025"
+            },
+            {
+                        "no": 26,
+                        "nama": "M.ANDRE PRAYOGA",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 17,
+                        "jabatan": "KP XIII-1004",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010026"
+            },
+            {
+                        "no": 27,
+                        "nama": "FRANSISCUS P. P MANALU",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 18,
+                        "jabatan": "DAN KP XIII-1017",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010027"
+            },
+            {
+                        "no": 28,
+                        "nama": "ZOSSA PANJI K.",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 15,
+                        "jabatan": "KP XIII-1017",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1E3XevBeOYbKfsz-DXcl8zGgPqePvxm9O/view?usp=sharing",
+                        "nrp": "89010028"
+            },
+            {
+                        "no": 29,
+                        "nama": "DAVI ARITONANG, S.H.",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 15,
+                        "jabatan": "KP XIII-1017",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010029"
+            },
+            {
+                        "no": 30,
+                        "nama": "IWAN MAULANA",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 23,
+                        "jabatan": "DAN KP XIII-1003",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1vR6_qB9VOfYtYPOvP_JZZX2oEtNvpClh/view?usp=sharing",
+                        "nrp": "89010030"
+            },
+            {
+                        "no": 31,
+                        "nama": "BAYU ANDIKA",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 12,
+                        "jabatan": "KP XIII-1003",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010031"
+            },
+            {
+                        "no": 32,
+                        "nama": "M. EKO SAPUTRA, S.H.",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 17,
+                        "jabatan": "KP XIII-1003",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1TnxOXOs5f2k59IrgmsDhVioFD8lNbVHA/view?usp=sharing",
+                        "nrp": "89010032"
+            },
+            {
+                        "no": 33,
+                        "nama": "RAHMAD WIRANTO",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-1003",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010033"
+            },
+            {
+                        "no": 34,
+                        "nama": "B. NAPITUPULU",
+                        "pangkat": "AIPDA",
+                        "jumlah": 33,
+                        "jabatan": "DAN KP XIII-1005",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/11zlKWEzfi1cr0pCFdYryEPYBJSSEE8Ny/view?usp=sharing",
+                        "nrp": "89010034"
+            },
+            {
+                        "no": 35,
+                        "nama": "WIRA AKBARI, S.H",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-1005",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010035"
+            },
+            {
+                        "no": 36,
+                        "nama": "M. FIKRI FADILLAH",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 18,
+                        "jabatan": "KP XIII-1005",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1LT9N4PaSVHCoyLyuaWQdP8Y1S12mjqpR/view?usp=sharing",
+                        "nrp": "89010036"
+            },
+            {
+                        "no": 37,
+                        "nama": "M. ZAINUDDIN, S.H",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 143,
+                        "jabatan": "DAN KP XIII-1016",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1_ii_J4z3W74BMYp55qF3aA6bn8Aoi8Et/view?usp=sharing",
+                        "nrp": "89010037"
+            },
+            {
+                        "no": 38,
+                        "nama": "M.NOR EFFENDI, S.H",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 403,
+                        "jabatan": "KP XIII-1016",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/19E_EgY8cTMLS-P6vfMzcy_dhuSVZHhj8/view?usp=sharing",
+                        "nrp": "89010038"
+            },
+            {
+                        "no": 39,
+                        "nama": "M. RIZKY HARIYADI",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 8,
+                        "jabatan": "KP XIII-1016",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010039"
+            },
+            {
+                        "no": 40,
+                        "nama": "SAIFUDIN SUHRI, S.H.",
+                        "pangkat": "AIPDA",
+                        "jumlah": 17,
+                        "jabatan": "DAN KP XIII-2002",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010040"
+            },
+            {
+                        "no": 41,
+                        "nama": "YUDI ERTANTO",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 12,
+                        "jabatan": "KP XIII-2002",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010041"
+            },
+            {
+                        "no": 42,
+                        "nama": "JOHNNY FRANS JAYA M S.H",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 233,
+                        "jabatan": "KP XIII-2002",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010042"
+            },
+            {
+                        "no": 43,
+                        "nama": "SYARIF HIDAYATTULLOH",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 29,
+                        "jabatan": "KP XIII-2002",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010043"
+            },
+            {
+                        "no": 44,
+                        "nama": "M. ARAFI",
+                        "pangkat": "BHARADA",
+                        "jumlah": 42,
+                        "jabatan": "KP XIII-2002",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1Buc-rgrVfwBqUEb0hy-KMxe5DorvNgEV/view?usp=sharing",
+                        "nrp": "89010044"
+            },
+            {
+                        "no": 45,
+                        "nama": "PAULUS RAHAIL, S.H",
+                        "pangkat": "AIPTU",
+                        "jumlah": 151,
+                        "jabatan": "DAN KP XIII-1013",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1sY0ks4aS6rXgxFk55q2f6qA-ruohKMwX/view?usp=sharing",
+                        "nrp": "89010045"
+            },
+            {
+                        "no": 46,
+                        "nama": "RIZKY JANUAR",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 2,
+                        "jabatan": "KP XIII-1013",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010046"
+            },
+            {
+                        "no": 47,
+                        "nama": "MUH. RIF'AT MEDIANTO",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-1013",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010047"
+            },
+            {
+                        "no": 48,
+                        "nama": "ADITYA ATWIN. P",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 17,
+                        "jabatan": "KP XIII-1013",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1jkuRb8AUsr0057WhDOn-p4neHl-p1PbW/view?usp=sharing",
+                        "nrp": "89010048"
+            },
+            {
+                        "no": 49,
+                        "nama": "IMAM SUCIPTO",
+                        "pangkat": "AIPDA",
+                        "jumlah": 12,
+                        "jabatan": "DAN KP XIII-1014",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010049"
+            },
+            {
+                        "no": 50,
+                        "nama": "DIDIK SUDARSONO",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 25,
+                        "jabatan": "KP XIII-1014",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/19Pls4whc97ea3XASQBxR0ylraKvsY9HW/view?usp=sharing",
+                        "nrp": "89010050"
+            },
+            {
+                        "no": 51,
+                        "nama": "M. ZAKI RAHMAN",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 20,
+                        "jabatan": "KP XIII-1014",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/14r_L0wzfBbzzZgLnwQxVV0D9jyd6amf6/view?usp=sharing",
+                        "nrp": "89010051"
+            },
+            {
+                        "no": 52,
+                        "nama": "H. JAFAR, S.E.",
+                        "pangkat": "AIPDA",
+                        "jumlah": 0,
+                        "jabatan": "DAN KP XIII-2007",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010052"
+            },
+            {
+                        "no": 53,
+                        "nama": "DENDY CAHYA EKA S., S.H",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 12,
+                        "jabatan": "KP XIII-2007",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1cqSDGbPojj_MqVZ_bpUahwR-M1Tzf9Bj/view?usp=sharing",
+                        "nrp": "89010053"
+            },
+            {
+                        "no": 54,
+                        "nama": "CHALVIN ANUGERAH",
+                        "pangkat": "BRIGADIR",
+                        "jumlah": 7,
+                        "jabatan": "KP XIII-2007",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010054"
+            },
+            {
+                        "no": 55,
+                        "nama": "M. ALI HUSIN",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 14,
+                        "jabatan": "KP XIII-2007",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1MNh77n3kC2-oFqh1C3JEAIi1v-3hLdwN/view?usp=sharing",
+                        "nrp": "89010055"
+            },
+            {
+                        "no": 56,
+                        "nama": "LINGGAR, F.P, S.H.",
+                        "pangkat": "IPDA",
+                        "jumlah": 12,
+                        "jabatan": "DAN KP MARTAPURA",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010056"
+            },
+            {
+                        "no": 57,
+                        "nama": "EDDY SUHENDRA, S.E",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 24,
+                        "jabatan": "KP MARTAPURA",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/18J46rvspvBaZflkC_Z1yNspECSfo1zkr/view?usp=sharing",
+                        "nrp": "89010057"
+            },
+            {
+                        "no": 58,
+                        "nama": "HERU SANTOSO.",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 12,
+                        "jabatan": "KP MARTAPURA",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010058"
+            },
+            {
+                        "no": 59,
+                        "nama": "M. RUDI RESNAWAN",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 0,
+                        "jabatan": "KP MARTAPURA",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010059"
+            },
+            {
+                        "no": 60,
+                        "nama": "VERDI SAPUTRA",
+                        "pangkat": "ABRIPDA",
+                        "jumlah": 0,
+                        "jabatan": "KP MARTAPURA",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010060"
+            },
+            {
+                        "no": 61,
+                        "nama": "M. MAULANA IBRAHIM",
+                        "pangkat": "BHARADA",
+                        "jumlah": 0,
+                        "jabatan": "KP MARTAPURA",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010061"
+            },
+            {
+                        "no": 62,
+                        "nama": "DODY ALAMSYAH",
+                        "pangkat": "AIPDA",
+                        "jumlah": 18,
+                        "jabatan": "DAN KP XIII-1008",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010062"
+            },
+            {
+                        "no": 63,
+                        "nama": "ERWIN ADIE S., A.Md",
+                        "pangkat": "AIPDA",
+                        "jumlah": 23,
+                        "jabatan": "KP XIII-1008",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010063"
+            },
+            {
+                        "no": 64,
+                        "nama": "ARYA INDRA K.",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 1,
+                        "jabatan": "KP XIII-1008",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010064"
+            },
+            {
+                        "no": 65,
+                        "nama": "ALIF MAULANA H.",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 10,
+                        "jabatan": "KP XIII-1008",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1DDNP4YWcXxzpoFFbV_YtLx0C8Z_HD_yM/view?usp=drive_link",
+                        "nrp": "89010065"
+            },
+            {
+                        "no": 66,
+                        "nama": "ZAINAL",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 23,
+                        "jabatan": "DAN KP XIII-2004",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1iZXv6eHtDOhTMVZhz_TNScMhzHYO96WA/view?usp=sharing",
+                        "nrp": "89010066"
+            },
+            {
+                        "no": 67,
+                        "nama": "WAHYU SUPRIYATNO,S.H",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 10,
+                        "jabatan": "KP XIII-2004",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1sSVVuBNDx_U-fwX_6NxkL731hL3E2t8u/view?usp=sharing",
+                        "nrp": "89010067"
+            },
+            {
+                        "no": 68,
+                        "nama": "RICKY GUNAWAN",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-2004",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010068"
+            },
+            {
+                        "no": 69,
+                        "nama": "DWI RAMADHANI",
+                        "pangkat": "BHARADA",
+                        "jumlah": 12,
+                        "jabatan": "KP XIII-2004",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010069"
+            },
+            {
+                        "no": 70,
+                        "nama": "RUSLI, S.E",
+                        "pangkat": "IPDA",
+                        "jumlah": 5,
+                        "jabatan": "DAN KP BARITO",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1zesJEP57cLWu9tAvFUrJrv54ZksX_0oA/view?usp=sharing",
+                        "nrp": "89010070"
+            },
+            {
+                        "no": 71,
+                        "nama": "DWI WAHYU",
+                        "pangkat": "AIPDA",
+                        "jumlah": 19,
+                        "jabatan": "KP BARITO",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010071"
+            },
+            {
+                        "no": 72,
+                        "nama": "ARIE FITRIADI",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 15,
+                        "jabatan": "KP BARITO",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1NJvbH1h4XhSVFb0CZ7FASoSUfgXsAGJf/view?usp=sharing",
+                        "nrp": "89010072"
+            },
+            {
+                        "no": 73,
+                        "nama": "FERRY YULIA S.H",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 17,
+                        "jabatan": "KP BARITO",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/16WGXKaOTUXRw3Pw-v5RjZrQbSd-_Jewq/view?usp=sharing",
+                        "nrp": "89010073"
+            },
+            {
+                        "no": 74,
+                        "nama": "M. SEPTAWAN HADINATA",
+                        "pangkat": "BRIGADIR",
+                        "jumlah": 4,
+                        "jabatan": "KP BARITO",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010074"
+            },
+            {
+                        "no": 75,
+                        "nama": "REZA PAHLEVY",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 16,
+                        "jabatan": "KP BARITO",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1IeeiCsGilx5bswD_rdQE45vADFkHNHWV/view?usp=sharing",
+                        "nrp": "89010075"
+            },
+            {
+                        "no": 76,
+                        "nama": "PRIYO SAMBODO, S.H.",
+                        "pangkat": "BRIPKA",
+                        "jumlah": 41,
+                        "jabatan": "DAN KP XIII-1009",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010076"
+            },
+            {
+                        "no": 77,
+                        "nama": "APIP DWI SAPUTRA",
+                        "pangkat": "BHARAKA",
+                        "jumlah": 9,
+                        "jabatan": "KP XIII-1009",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010077"
+            },
+            {
+                        "no": 78,
+                        "nama": "BAMBANG SYAHPUTRA",
+                        "pangkat": "AIPDA",
+                        "jumlah": 21,
+                        "jabatan": "DAN KP XIII-1015",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1DuEGh_IpF2YVXV7j2hueO1IE65WuU1jY/view?usp=sharing",
+                        "nrp": "89010078"
+            },
+            {
+                        "no": 79,
+                        "nama": "RAUDANI MISFALAH",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 15,
+                        "jabatan": "KP XIII-1015",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010079"
+            },
+            {
+                        "no": 80,
+                        "nama": "FATHUL TRISTANTO",
+                        "pangkat": "BHARATU",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-1001",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010080"
+            },
+            {
+                        "no": 81,
+                        "nama": "AGUS SAPUTRA",
+                        "pangkat": "ABRIPDA",
+                        "jumlah": 280,
+                        "jabatan": "KP XIII-1002",
+                        "ket": "",
+                        "foto": "https://drive.google.com/file/d/1-w-LgeOXC8LeHsPWEhE_k8xx6AIkQ1kW/view?usp=sharing",
+                        "nrp": "89010081"
+            },
+            {
+                        "no": 82,
+                        "nama": "FRIEZA MUSAF.I.D",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-2009",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010082"
+            },
+            {
+                        "no": 83,
+                        "nama": "M. IMAM ALMADANI",
+                        "pangkat": "BRIPTU",
+                        "jumlah": 0,
+                        "jabatan": "KP XIII-1011",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010083"
+            },
+            {
+                        "no": 84,
+                        "nama": "M. KASPUL ANWAR",
+                        "pangkat": "ABRIPDA",
+                        "jumlah": 6,
+                        "jabatan": "KPC XIII-2008",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010084"
+            },
+            {
+                        "no": 85,
+                        "nama": "M. IHSAN FITRIAN",
+                        "pangkat": "BRIPDA",
+                        "jumlah": 11,
+                        "jabatan": "KP XIII-2009",
+                        "ket": "",
+                        "foto": "",
+                        "nrp": "89010085"
+            }
+];
 
-        const DEMO_PERSONNEL = SEPTEMBER_OFFICIAL_85.map(p => ({
+        const BASELINE_PERSONNEL = VERIFIED_NOVEMBER_85.map(p => ({
+            no: p.no,
             nrp: p.nrp,
             nama: p.nama,
             pangkat: p.pangkat,
             rw: p.jabatan,
             jabatan: p.jabatan,
-            ket: p.ket,
-            foto: ""
+            ket: p.ket || "",
+            foto: p.foto || ""
         }));
 
-        const JENIS_GIAT_LIST = [
-            "Sambang & Dialogis Masyarakat Pesisir",
-            "Sosialisasi Keselamatan Pelayaran & Life Jacket",
-            "Problem Solving Sengketa Lahan Tambat Perahu",
-            "Patroli Dialogis Cegah Illegal Fishing",
-            "Koordinasi Ketua RW & Tokoh Masyarakat Perairan",
-            "Imbauan Waspada Cuaca Ekstrem & Gelombang Tinggi",
-            "Bakti Sosial & Bersih-Bersih Bantaran Sungai",
-            "Deteksi Dini Kerawanan Kamtibmas Wilayah Perairan"
-        ];
-
-        // Generate realistic multi-month (JANUARI..DESEMBER 2026) activity logs while preserving SEPTEMBER's exact 85 counts
-        function generateDemoActivities() {
+        function buildInitialBaselineActivities() {
             const logs = [];
-            SEPTEMBER_OFFICIAL_85.forEach((person, pIdx) => {
-                MONTH_NAMES_ID.forEach((monthName, mIdx) => {
-                    const monthNum = String(mIdx + 1).padStart(2, '0');
-                    const daysInMonth = new Date(ACTIVE_YEAR, mIdx + 1, 0).getDate();
-                    let targetCount = 0;
-
-                    if (monthName === "SEPTEMBER") {
-                        targetCount = person.jumlah;
-                    } else {
-                        const seedFactor = 0.72 + (((pIdx * 7 + mIdx * 13) % 45) / 100);
-                        targetCount = person.jumlah === 0
-                            ? ((pIdx + mIdx) % 5 === 0 ? 2 : 0)
-                            : Math.max(0, Math.round(person.jumlah * seedFactor));
-                    }
-
-                    for (let i = 0; i < targetCount; i++) {
-                        const day = ((i * 3 + pIdx + mIdx) % daysInMonth) + 1;
-                        const dayStr = String(day).padStart(2, '0');
-                        logs.push({
-                            tanggal: `${ACTIVE_YEAR}-${monthNum}-${dayStr}`,
-                            bulan: monthName,
-                            nrp: person.nrp,
-                            nama: person.nama,
-                            pangkat: person.pangkat,
-                            rw: person.jabatan,
-                            jabatan: person.jabatan,
-                            ket: person.ket,
-                            jenis_giat: JENIS_GIAT_LIST[(i + pIdx + mIdx) % JENIS_GIAT_LIST.length],
-                            foto: ""
-                        });
-                    }
-                });
+            const ym = `${WORKBOOK_YEAR}-11`;
+            VERIFIED_NOVEMBER_85.forEach((p, idx) => {
+                for (let k = 0; k < p.jumlah; k++) {
+                    const day = ((k + idx) % 23) + 1;
+                    const dateStr = `${ym}-${String(day).padStart(2, '0')}`;
+                    logs.push({
+                        tanggal: dateStr,
+                        bulan: "NOVEMBER",
+                        nrp: p.nrp,
+                        nama: p.nama,
+                        pangkat: p.pangkat,
+                        rw: p.jabatan,
+                        jabatan: p.jabatan,
+                        ket: p.ket || "",
+                        jenis_giat: `Giat Harian Polisi RW (${formatIndoDate(dateStr)})`,
+                        foto: p.foto || ""
+                    });
+                }
             });
             return logs;
         }
 
-        // Application State
-        function buildFallbackPersonnelByMonth() {
+        function buildInitialPersonnelByMonth() {
             const map = {};
             MONTH_NAMES_ID.forEach((_, mIdx) => {
-                const ym = `${ACTIVE_YEAR}-${String(mIdx + 1).padStart(2, '0')}`;
-                map[ym] = DEMO_PERSONNEL.map(p => ({ ...p }));
+                const ym = `${WORKBOOK_YEAR}-${String(mIdx + 1).padStart(2, '0')}`;
+                map[ym] = BASELINE_PERSONNEL.map(p => ({ ...p }));
             });
             return map;
         }
 
-        let allActivities = generateDemoActivities();
-        let allPersonnelMaster = [...DEMO_PERSONNEL];
-        let personnelByMonth = buildFallbackPersonnelByMonth();
+        // Application State
+        let allActivities = buildInitialBaselineActivities();
+        let allPersonnelMaster = [...BASELINE_PERSONNEL];
+        let personnelByMonth = buildInitialPersonnelByMonth();
+        let globalPhotoMap = new Map();
+        VERIFIED_NOVEMBER_85.forEach(p => {
+            if (p.foto) {
+                globalPhotoMap.set(normalizeNameKey(p.nama), p.foto);
+            }
+        });
+
         let userHasChangedMonth = false;
         let currentTab = 'top3'; // 'top3' | 'under_target' | 'all'
         let currentRankedData = [];
@@ -641,8 +1593,11 @@
         let currentActiveTarget = TARGET_MINIMAL_GIAT;
         let memberChartInstance = null;
 
+        // State khusus Modal Rekap Giat Bulanan (menyimpan edit manual KET per bulan-personel)
+        const manualRekapKetOverrides = {};
+
         // =========================================================================
-        // 2. HELPER FUNCTIONS (SECURITY, AVATAR, DATES, RANKING, FOTO NORMALIZER)
+        // 2. HELPER FUNCTIONS (SECURITY, FOTO DRIVE CDN & SVG AVATAR, TANGGAL, NAMA)
         // =========================================================================
         function escapeHtml(value) {
             return String(value ?? "")
@@ -657,9 +1612,121 @@
             return encodeURIComponent(String(value ?? "")).replace(/'/g, "%27");
         }
 
+        function normalizePangkat(rawPangkat) {
+            const p = String(rawPangkat || "").trim().toUpperCase();
+            if (p === "BRIGADR" || p === "BRIGPOL") return "BRIGADIR";
+            return p;
+        }
+
+        // Hapus seluruh gelar akademik/kehormatan agar pencocokan nama & inisial avatar akurat
+        function stripTitlesFromName(name) {
+            return String(name || "")
+                .replace(/,?\s*\b(S\.?\s*H\.?|S\.?\s*E\.?|S\.?\s*KOM\.?|S\.?\s*AP\.?|S\.?\s*PD\.?|S\.?\s*I\.?\s*K\.?|S\.?\s*SOS\.?|S\.?\s*IP\.?|M\.?\s*H\.?|M\.?\s*M\.?|M\.?\s*SI\.?|A\.?\s*MD\.?|SH|SE|MH|AMD)\b\.?/gi, "")
+                .replace(/^\s*(H|HJ)\.\s+/i, "")
+                .replace(/\s+/g, " ")
+                .trim();
+        }
+
+        function normalizeNameKey(name) {
+            return stripTitlesFromName(name)
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, "");
+        }
+
+        function getCleanInitials(name) {
+            const stripped = stripTitlesFromName(name)
+                .replace(/\./g, " ")
+                .replace(/[^a-zA-Z\s]/g, "")
+                .trim()
+                .toUpperCase();
+            if (!stripped) return "PR";
+            const words = stripped.split(/\s+/).filter(Boolean);
+            if (words.length === 1) {
+                return words[0].substring(0, 2);
+            }
+            // Jika kata pertama singkatan 1 huruf (misal "M NOR EFFENDI"), ambil M + huruf kata terakhir/kedua yang bermakna
+            if (words[0].length === 1 && words.length >= 3) {
+                return words[0][0] + words[1][0];
+            }
+            return words[0][0] + words[1][0];
+        }
+
+        // Avatar SVG lokal instan (tanpa ketergantungan jaringan luar & bebas bug inisial gelar "S.H" -> "WS")
         function buildFallbackAvatar(name) {
-            const cleanName = String(name || "Polisi RW").replace(/[^a-zA-Z\s]/g, '').trim() || "Polisi RW";
-            return `https://ui-avatars.com/api/?name=${encodeAttrParam(cleanName)}&background=0A192F&color=00E5FF&bold=true&size=256`;
+            const initials = getCleanInitials(name);
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 320"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#0F2342"/><stop offset="100%" stop-color="#071326"/></linearGradient></defs><rect width="240" height="320" fill="url(#g)"/><circle cx="120" cy="108" r="52" fill="#16325B" stroke="#00E5FF" stroke-opacity="0.35" stroke-width="3"/><path d="M44 286c10-50 42-78 76-78s66 28 76 78" fill="#16325B" stroke="#00E5FF" stroke-opacity="0.25" stroke-width="3"/><text x="120" y="125" text-anchor="middle" fill="#00E5FF" font-family="Plus Jakarta Sans,Arial,sans-serif" font-weight="800" font-size="44" letter-spacing="1">${initials}</text></svg>`;
+            return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+        }
+
+        function extractDriveFileId(rawUrl) {
+            if (!rawUrl) return "";
+            const str = String(rawUrl).trim();
+            const mFile = str.match(/\/file\/d\/([a-zA-Z0-9_-]{10,})/);
+            if (mFile && mFile[1]) return mFile[1];
+            const mLh3 = str.match(/googleusercontent\.com\/d\/([a-zA-Z0-9_-]{10,})/);
+            if (mLh3 && mLh3[1]) return mLh3[1];
+            const mId = str.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+            if (mId && mId[1]) return mId[1];
+            return "";
+        }
+
+        // Kembalikan URL utama (CDN langsung lh3.googleusercontent.com yang bebas blokir ORB/redirect) + URL cadangan
+        function getPhotoUrls(rawUrl) {
+            if (!rawUrl) return { primary: "", backup: "" };
+            let url = String(rawUrl).trim();
+            const imgFormulaMatch = url.match(/=IMAGE\s*\(\s*["']([^"']+)["']/i);
+            if (imgFormulaMatch && imgFormulaMatch[1]) {
+                url = imgFormulaMatch[1].trim();
+            }
+            if (!/^https?:\/\//i.test(url)) return { primary: "", backup: "" };
+
+            const driveId = extractDriveFileId(url);
+            if (driveId) {
+                return {
+                    primary: `https://lh3.googleusercontent.com/d/${driveId}=w600`,
+                    backup: `https://drive.google.com/thumbnail?id=${driveId}&sz=w600`
+                };
+            }
+            if (url.includes("googleusercontent.com")) {
+                url = url.replace(/=([swh]\d+[^/&?]*)-c/i, '=$1');
+            }
+            return { primary: url, backup: "" };
+        }
+
+        function resolvePhotoFromMap(nameKey, photoMap) {
+            if (!nameKey || !photoMap || photoMap.size === 0) return "";
+            if (photoMap.has(nameKey)) return photoMap.get(nameKey);
+            // Pencocokan awalan untuk singkatan nama belakang antar bulan (misal ZOSSAPANJIK vs ZOSSAPANJIKELANA)
+            for (const [k, url] of photoMap.entries()) {
+                if (k.length >= 9 && nameKey.length >= 9 && (nameKey.startsWith(k) || k.startsWith(nameKey))) {
+                    return url;
+                }
+            }
+            return "";
+        }
+
+        function getAvatarSources(person) {
+            const rawFoto = person.foto || resolvePhotoFromMap(normalizeNameKey(person.nama), globalPhotoMap);
+            const fallback = buildFallbackAvatar(person.nama);
+            const { primary, backup } = getPhotoUrls(rawFoto);
+            return {
+                primary: primary || fallback,
+                backup: backup || "",
+                fallback,
+                hasRealPhoto: Boolean(primary)
+            };
+        }
+
+        function handleImgError(imgEl) {
+            const backup = imgEl.getAttribute('data-backup');
+            const fallback = imgEl.getAttribute('data-fallback');
+            if (backup && imgEl.src !== backup) {
+                imgEl.setAttribute('data-backup', '');
+                imgEl.src = backup;
+                return;
+            }
+            imgEl.onerror = null;
+            if (fallback) imgEl.src = fallback;
         }
 
         function computeActiveTarget(monthVal, weekVal, dateVal) {
@@ -667,55 +1734,21 @@
                 return { target: 1, label: "1 Giat / Hari" };
             }
             if (monthVal === 'ALL') {
+                const activeMonthsCount = Math.max(1, MONTH_NAMES_ID.filter((_, idx) => {
+                    const ym = `${WORKBOOK_YEAR}-${String(idx + 1).padStart(2, '0')}`;
+                    return allActivities.some(l => l.tanggal && l.tanggal.startsWith(ym));
+                }).length);
                 if (weekVal !== 'ALL') {
-                    return { target: 36, label: "36 Giat (3 Giat/Minggu × 12 Bln)" };
+                    const t = 3 * activeMonthsCount;
+                    return { target: t, label: `${t} Giat (3 Giat/Minggu × ${activeMonthsCount} Bln Aktif)` };
                 }
-                return { target: TARGET_MINIMAL_GIAT * 12, label: `${TARGET_MINIMAL_GIAT * 12} Giat / Tahun (12/Bln)` };
+                const totalTarget = TARGET_MINIMAL_GIAT * activeMonthsCount;
+                return { target: totalTarget, label: `${totalTarget} Giat (${activeMonthsCount} Bln Aktif × 12)` };
             }
             if (weekVal !== 'ALL') {
                 return { target: 3, label: "3 Giat / Minggu" };
             }
             return { target: TARGET_MINIMAL_GIAT, label: `${TARGET_MINIMAL_GIAT} Giat / Bulan` };
-        }
-        function normalizePhotoUrl(rawUrl) {
-            if (!rawUrl) return "";
-            let url = String(rawUrl).trim();
-            // Ekstrak URL jika sel memakai rumus =IMAGE("https://...")
-            const imgFormulaMatch = url.match(/=IMAGE\s*\(\s*["']([^"']+)["']/i);
-            if (imgFormulaMatch && imgFormulaMatch[1]) {
-                url = imgFormulaMatch[1].trim();
-            }
-            if (!/^https?:\/\//i.test(url)) return "";
-
-            // Konversi berbagai format link Google Drive ke thumbnail utuh (tanpa crop kotak)
-            const fileMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
-            if (fileMatch && fileMatch[1]) {
-                return `https://drive.google.com/thumbnail?id=${fileMatch[1]}&sz=w600`;
-            }
-            const openMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-            if ((url.includes("drive.google.com") || url.includes("docs.google.com")) && openMatch && openMatch[1]) {
-                return `https://drive.google.com/thumbnail?id=${openMatch[1]}&sz=w600`;
-            }
-            // Hapus parameter crop kotak (-c) jika URL berasal dari lh3.googleusercontent.com
-            if (url.includes("googleusercontent.com")) {
-                url = url.replace(/=([swh]\d+[^/&?]*)-c/i, '=$1');
-            }
-            return url;
-        }
-
-        function normalizeNameKey(name) {
-            return String(name || "")
-                .toUpperCase()
-                .replace(/,?\s*(S\.?H\.?|S\.?E\.?|S\.?KOM\.?|S\.?AP\.?|M\.?H\.?|A\.?MD\.?|SH|SE|MH)\b/g, "")
-                .replace(/[^A-Z0-9]/g, "");
-        }
-
-        function getAvatarUrl(person) {
-            const normalized = normalizePhotoUrl(person.foto);
-            if (normalized) {
-                return normalized;
-            }
-            return buildFallbackAvatar(person.nama);
         }
 
         function getWeekOfMonth(dateStr) {
@@ -758,11 +1791,11 @@
         function resetFilters() {
             userHasChangedMonth = false;
             const monthEl = document.getElementById('filterMonth');
-            const currentYm = getCurrentYearMonth();
-            if (Array.from(monthEl.options).some(opt => opt.value === currentYm)) {
-                monthEl.value = currentYm;
+            const defaultYm = getInitialYearMonth();
+            if (Array.from(monthEl.options).some(opt => opt.value === defaultYm)) {
+                monthEl.value = defaultYm;
             } else if (monthEl.options.length > 1) {
-                monthEl.value = monthEl.options[1].value;
+                monthEl.value = `${WORKBOOK_YEAR}-11`;
             }
             document.getElementById('filterWeek').value = 'ALL';
             document.getElementById('filterDate').value = '';
@@ -773,54 +1806,27 @@
         // =========================================================================
         // 3. DATA COMPUTATION & FILTERING
         // =========================================================================
-        function computeFilteredData() {
-            const monthVal = document.getElementById('filterMonth').value;
-            const weekVal = document.getElementById('filterWeek').value;
-            const dateVal = document.getElementById('filterDate').value;
-            const searchVal = document.getElementById('searchInput').value.trim().toLowerCase();
-
-            // Update label periode aktif sesuai tahun & bulan yang dipilih
-            const periodLabelEl = document.getElementById('activePeriodLabel');
-            if (dateVal) {
-                periodLabelEl.textContent = `Tanggal ${formatIndoDate(dateVal)}`;
-            } else if (monthVal === 'ALL') {
-                const weekText = weekVal === 'ALL' ? '' : ` • Minggu ke-${weekVal}`;
-                periodLabelEl.textContent = `Semua Bulan (Jan - Des ${ACTIVE_YEAR})` + weekText;
-            } else {
-                const [selYear, selMonth] = monthVal.split('-');
-                const monthText = `${MONTH_CAPITAL_ID[parseInt(selMonth, 10) - 1]} ${selYear}`;
-                const weekText = weekVal === 'ALL' ? '' : ` • Minggu ke-${weekVal}`;
-                periodLabelEl.textContent = monthText + weekText;
-            }
-
-            // Filter log kegiatan
+        function computeDataForPeriod(monthVal, weekVal = 'ALL', dateVal = '', searchVal = '') {
             const filteredLogs = allActivities.filter(log => {
                 if (!log.tanggal) return false;
-                if (dateVal) {
-                    return log.tanggal === dateVal;
-                }
-                if (monthVal !== 'ALL' && !log.tanggal.startsWith(monthVal)) {
-                    return false;
-                }
-                if (weekVal !== 'ALL' && String(getWeekOfMonth(log.tanggal)) !== weekVal) {
-                    return false;
-                }
+                if (dateVal) return log.tanggal === dateVal;
+                if (monthVal !== 'ALL' && !log.tanggal.startsWith(monthVal)) return false;
+                if (weekVal !== 'ALL' && String(getWeekOfMonth(log.tanggal)) !== weekVal) return false;
                 return true;
             });
 
-            // Tentukan daftar personel aktual sesuai tab bulan yang dibuka (bukan gabungan semua bulan)
             const activeYm = dateVal ? dateVal.substring(0, 7) : monthVal;
             const activeRoster = (activeYm !== 'ALL' && personnelByMonth[activeYm] && personnelByMonth[activeYm].length > 0)
                 ? personnelByMonth[activeYm]
                 : allPersonnelMaster;
 
-            // Hitung giat per personel (berbasis daftar aktual tab bulan yang sedang dibuka agar 0 giat tetap tampil)
             const statsMap = new Map();
             activeRoster.forEach(p => {
                 const key = normalizeNameKey(p.nama);
                 if (!statsMap.has(key)) {
                     statsMap.set(key, {
                         ...p,
+                        foto: p.foto || resolvePhotoFromMap(key, globalPhotoMap),
                         totalGiat: 0,
                         logs: [],
                         weeklyCounts: [0, 0, 0, 0]
@@ -834,11 +1840,11 @@
                     statsMap.set(key, {
                         nrp: log.nrp || `AUTO-${statsMap.size + 1}`,
                         nama: log.nama,
-                        pangkat: log.pangkat || '',
+                        pangkat: normalizePangkat(log.pangkat || ''),
                         rw: log.jabatan || log.rw || 'DITPOLAIRUD',
                         jabatan: log.jabatan || log.rw || 'DITPOLAIRUD',
                         ket: log.ket || '',
-                        foto: log.foto || '',
+                        foto: log.foto || resolvePhotoFromMap(key, globalPhotoMap),
                         totalGiat: 0,
                         logs: [],
                         weeklyCounts: [0, 0, 0, 0]
@@ -859,12 +1865,6 @@
                 }
             });
 
-            // Hitung target dinamis sesuai filter aktif (bulan/minggu/tanggal/semua bulan)
-            const { target: activeTarget, label: targetLabel } = computeActiveTarget(monthVal, weekVal, dateVal);
-            const targetLabelEl = document.getElementById('activeTargetLabel');
-            if (targetLabelEl) targetLabelEl.textContent = targetLabel;
-
-            // Urutkan peringkat tertinggi ke terendah
             const allRanked = Array.from(statsMap.values()).sort((a, b) => {
                 if (b.totalGiat !== a.totalGiat) return b.totalGiat - a.totalGiat;
                 return a.nama.localeCompare(b.nama);
@@ -874,14 +1874,14 @@
                 item.rank = index + 1;
             });
 
-            // Filter pencarian nama / pangkat / jabatan
             let ranked = allRanked;
             if (searchVal) {
+                const q = searchVal.toLowerCase();
                 ranked = allRanked.filter(p =>
-                    p.nama.toLowerCase().includes(searchVal) ||
-                    (p.pangkat && p.pangkat.toLowerCase().includes(searchVal)) ||
-                    (p.jabatan && p.jabatan.toLowerCase().includes(searchVal)) ||
-                    (p.ket && p.ket.toLowerCase().includes(searchVal))
+                    p.nama.toLowerCase().includes(q) ||
+                    (p.pangkat && p.pangkat.toLowerCase().includes(q)) ||
+                    (p.jabatan && p.jabatan.toLowerCase().includes(q)) ||
+                    (p.ket && p.ket.toLowerCase().includes(q))
                 );
             }
 
@@ -890,9 +1890,36 @@
                 allRanked,
                 filteredLogs,
                 activeRosterCount: statsMap.size,
-                activeTarget,
                 isSearching: Boolean(searchVal)
             };
+        }
+
+        function computeFilteredData() {
+            const monthVal = document.getElementById('filterMonth').value;
+            const weekVal = document.getElementById('filterWeek').value;
+            const dateVal = document.getElementById('filterDate').value;
+            const searchVal = document.getElementById('searchInput').value.trim();
+
+            const periodLabelEl = document.getElementById('activePeriodLabel');
+            if (dateVal) {
+                periodLabelEl.textContent = `Tanggal ${formatIndoDate(dateVal)}`;
+            } else if (monthVal === 'ALL') {
+                const weekText = weekVal === 'ALL' ? '' : ` • Minggu ke-${weekVal}`;
+                periodLabelEl.textContent = `Semua Bulan (Jan - Des ${WORKBOOK_YEAR})` + weekText;
+            } else {
+                const [selYear, selMonth] = monthVal.split('-');
+                const mIdx = parseInt(selMonth, 10) - 1;
+                const monthText = `${MONTH_CAPITAL_ID[mIdx] || selMonth} ${selYear}`;
+                const weekText = weekVal === 'ALL' ? '' : ` • Minggu ke-${weekVal}`;
+                periodLabelEl.textContent = monthText + weekText;
+            }
+
+            const { target: activeTarget, label: targetLabel } = computeActiveTarget(monthVal, weekVal, dateVal);
+            const targetLabelEl = document.getElementById('activeTargetLabel');
+            if (targetLabelEl) targetLabelEl.textContent = targetLabel;
+
+            const result = computeDataForPeriod(monthVal, weekVal, dateVal, searchVal);
+            return { ...result, activeTarget };
         }
 
         // =========================================================================
@@ -926,15 +1953,11 @@
             const underTargetCount = ranked.filter(p => p.totalGiat < activeTarget).length;
             const zeroGiatCount = ranked.filter(p => p.totalGiat === 0).length;
 
-            // Update label dinamis sesuai target aktif & jumlah aktual personel
             const tabAllBtn = document.getElementById('tab-all');
-            if (tabAllBtn) {
-                tabAllBtn.textContent = `Semua Personel (${activeRosterCount})`;
-            }
+            if (tabAllBtn) tabAllBtn.textContent = `Semua Personel (${activeRosterCount})`;
             const tabUnderBtn = document.getElementById('tab-under_target');
-            if (tabUnderBtn) {
-                tabUnderBtn.textContent = `Perlu Atensi (<${activeTarget} Giat)`;
-            }
+            if (tabUnderBtn) tabUnderBtn.textContent = `Perlu Atensi (<${activeTarget} Giat)`;
+
             const kpiMeetTitle = document.getElementById('kpiMeetTitle');
             if (kpiMeetTitle) kpiMeetTitle.textContent = `Capai Target (≥${activeTarget})`;
             const kpiUnderTitle = document.getElementById('kpiUnderTitle');
@@ -942,7 +1965,6 @@
             const thProgresTarget = document.getElementById('thProgresTarget');
             if (thProgresTarget) thProgresTarget.textContent = `Progres Target (${activeTarget})`;
 
-            // Update KPI Cards
             document.getElementById('kpiTotalGiat').textContent = totalGiat.toLocaleString('id-ID');
             const avg = totalPersonel > 0 ? (totalGiat / totalPersonel).toFixed(1) : '0';
             document.getElementById('kpiAvgGiat').textContent = `Rata-rata ${avg} giat / personel`;
@@ -957,16 +1979,14 @@
             document.getElementById('kpiUnderTarget').textContent = underTargetCount;
             document.getElementById('kpiUnderSub').textContent = `Termasuk ${zeroGiatCount} personel 0 giat`;
 
-            // Render Podium Top 3 (tampil di tab 'top3' dan disembunyikan saat pencarian aktif agar peringkat tidak keliru)
             const podiumSection = document.getElementById('podiumSection');
-            if (currentTab === 'top3' && !isSearching) {
+            if (currentTab === 'top3' && !isSearching && totalGiat > 0) {
                 podiumSection.classList.remove('hidden');
                 renderPodium(allRanked.slice(0, 3));
             } else {
                 podiumSection.classList.add('hidden');
             }
 
-            // Filter baris tabel sesuai tab aktif
             let tableData = ranked;
             const titleEl = document.getElementById('tableSectionTitle');
             const subtitleEl = document.getElementById('tableSectionSubtitle');
@@ -975,11 +1995,11 @@
                 titleEl.textContent = isSearching ? "Hasil Pencarian Personel" : "Peringkat Kinerja Seluruh Polisi RW";
                 subtitleEl.textContent = isSearching
                     ? "Menampilkan personel yang cocok dengan kata kunci pencarian"
-                    : "Urutan capaian giat tertinggi hingga terendah pada periode aktif";
+                    : "Urutan capaian giat tertinggi hingga terendah sesuai data Spreadsheet";
             } else if (currentTab === 'under_target') {
                 tableData = ranked.filter(p => p.totalGiat < activeTarget);
                 titleEl.textContent = `Daftar Personel Perlu Atensi (< ${activeTarget} Giat)`;
-                subtitleEl.textContent = `Personel dengan capaian di bawah target ${activeTarget} giat atau keterangan khusus (DIKJUR/KARHUTLA/DRIVER/DINAS)`;
+                subtitleEl.textContent = `Personel dengan capaian di bawah target ${activeTarget} giat atau keterangan khusus`;
             } else {
                 titleEl.textContent = "Rekapitulasi Lengkap Personel Polisi RW Ditpolairud";
                 subtitleEl.textContent = "Seluruh daftar personel beserta status pencapaian target";
@@ -996,8 +2016,6 @@
                 return;
             }
 
-            // Mobile: 1 kolom vertikal berurutan #1 di atas, #2 di tengah, #3 di bawah (order-1, order-2, order-3)
-            // Desktop (md:): 3 kolom podium klasik #2 kiri (md:order-1), #1 tengah lebih tinggi (md:order-2), #3 kanan (md:order-3)
             const orderedSlots = [];
             if (top3[0]) orderedSlots.push({ person: top3[0], medal: 'PERINGKAT #1', cardClass: 'glass-card-gold', badgeBg: 'bg-gold-400 text-marine-950', orderClass: 'order-1 md:order-2', heightClass: 'md:pb-10 md:scale-[1.03]', crown: '&#129351;' });
             if (top3[1]) orderedSlots.push({ person: top3[1], medal: 'PERINGKAT #2', cardClass: 'glass-card-silver', badgeBg: 'bg-slate-300 text-marine-950', orderClass: 'order-2 md:order-1', heightClass: 'md:pb-6', crown: '&#129352;' });
@@ -1005,8 +2023,7 @@
 
             grid.innerHTML = orderedSlots.map(slot => {
                 const p = slot.person;
-                const avatar = getAvatarUrl(p);
-                const fallbackAvatar = buildFallbackAvatar(p.nama);
+                const { primary, backup, fallback, hasRealPhoto } = getAvatarSources(p);
                 const encodedName = encodeAttrParam(p.nama);
                 const safeName = escapeHtml(p.nama);
                 const safePangkat = escapeHtml(p.pangkat || '-');
@@ -1015,6 +2032,9 @@
                 const frameBorderClass = isFirst
                     ? 'border-2 border-gold-400 shadow-[0_0_28px_rgba(255,215,0,0.48)]'
                     : 'border-2 border-turq-400/70 shadow-lg';
+                const bgLayer = hasRealPhoto
+                    ? `<img src="${escapeHtml(primary)}" referrerpolicy="no-referrer" alt="" aria-hidden="true" onerror="this.style.display='none'" class="absolute inset-0 w-full h-full object-cover blur-md opacity-35 scale-110 pointer-events-none">`
+                    : '';
                 return `
                     <div onclick="openMemberModal('${encodedName}')" class="${slot.orderClass} ${slot.cardClass} ${slot.heightClass} rounded-2xl p-4 sm:p-5 text-center transition hover:-translate-y-1 cursor-pointer relative overflow-hidden">
                         <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold ${slot.badgeBg} mb-3 ${isFirst ? 'shadow-[0_0_20px_rgba(255,215,0,0.65)]' : 'shadow'}">
@@ -1022,8 +2042,8 @@
                             <span>${slot.medal}</span>
                         </div>
                         <div class="relative w-24 h-32 sm:w-28 sm:h-36 mx-auto mb-3 rounded-2xl overflow-hidden ${frameBorderClass} bg-marine-950">
-                            <img src="${escapeHtml(avatar)}" alt="" aria-hidden="true" onerror="this.style.display='none'" class="absolute inset-0 w-full h-full object-cover blur-md opacity-30 scale-110 pointer-events-none">
-                            <img src="${escapeHtml(avatar)}" alt="${safeName}" onerror="this.onerror=null;this.src='${fallbackAvatar}'" class="relative z-10 w-full h-full object-contain">
+                            ${bgLayer}
+                            <img src="${escapeHtml(primary)}" referrerpolicy="no-referrer" data-backup="${escapeHtml(backup)}" data-fallback="${escapeHtml(fallback)}" alt="${safeName}" onerror="handleImgError(this)" class="relative z-10 w-full h-full ${hasRealPhoto ? 'object-cover object-top' : 'object-contain'}">
                         </div>
                         <p class="text-[11px] font-bold text-turq-400 uppercase tracking-wider">${safePangkat}</p>
                         <h3 class="text-base font-extrabold text-white mt-0.5 line-clamp-1">${safeName}</h3>
@@ -1042,20 +2062,9 @@
             const cardList = document.getElementById('rankingCardList');
 
             if (!rows || rows.length === 0) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="7" class="py-10 text-center text-slate-400 text-sm">
-                            Tidak ditemukan data personel pada filter periode/pencarian ini.
-                        </td>
-                    </tr>
-                `;
-                if (cardList) {
-                    cardList.innerHTML = `
-                        <div class="py-10 px-4 text-center text-slate-400 text-sm">
-                            Tidak ditemukan data personel pada filter periode/pencarian ini.
-                        </div>
-                    `;
-                }
+                const emptyMsg = `Tidak ditemukan data personel pada filter periode/pencarian ini.`;
+                tbody.innerHTML = `<tr><td colspan="7" class="py-10 text-center text-slate-400 text-sm">${emptyMsg}</td></tr>`;
+                if (cardList) cardList.innerHTML = `<div class="py-10 px-4 text-center text-slate-400 text-sm">${emptyMsg}</div>`;
                 return;
             }
 
@@ -1077,8 +2086,8 @@
                 const safeJabatan = escapeHtml(p.jabatan || '-');
                 const safeKet = p.ket ? escapeHtml(p.ket) : '';
                 const encodedName = encodeAttrParam(p.nama);
-                const avatar = getAvatarUrl(p);
-                const fallbackAvatar = buildFallbackAvatar(p.nama);
+                const { primary, backup, fallback, hasRealPhoto } = getAvatarSources(p);
+                const imgFitClass = hasRealPhoto ? 'object-cover object-top' : 'object-contain';
 
                 let statusBadge = isTargetMet
                     ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">Memenuhi Target</span>`
@@ -1088,14 +2097,13 @@
                     statusBadge += `<span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">${safeKet}</span>`;
                 }
 
-                // Desktop Table Row
                 desktopRowsHtml.push(`
                     <tr onclick="openMemberModal('${encodedName}')" class="hover:bg-marine-850/70 transition cursor-pointer group">
                         <td class="py-3.5 px-4 text-center">${rankDisplay}</td>
                         <td class="py-3.5 px-4">
                             <div class="flex items-center gap-3">
                                 <div class="relative w-11 h-14 rounded-xl overflow-hidden bg-marine-950 border border-slate-700 group-hover:border-turq-400 transition shrink-0">
-                                    <img src="${escapeHtml(avatar)}" alt="${safeName}" onerror="this.onerror=null;this.src='${fallbackAvatar}'" class="w-full h-full object-contain">
+                                    <img src="${escapeHtml(primary)}" loading="lazy" referrerpolicy="no-referrer" data-backup="${escapeHtml(backup)}" data-fallback="${escapeHtml(fallback)}" alt="${safeName}" onerror="handleImgError(this)" class="w-full h-full ${imgFitClass}">
                                 </div>
                                 <div>
                                     <p class="font-bold text-white group-hover:text-turq-400 transition">${safeName}</p>
@@ -1126,19 +2134,15 @@
                     </tr>
                 `);
 
-                // Mobile Compact Card (tanpa scroll samping: Foto, Nama, Jabatan, Total Giat, Progres, Status & Tombol Detail)
                 mobileCardsHtml.push(`
                     <div onclick="openMemberModal('${encodedName}')" class="p-3.5 hover:bg-marine-850/60 active:bg-marine-850/80 transition cursor-pointer">
                         <div class="flex items-start gap-3">
-                            <!-- Foto + Rank -->
                             <div class="flex flex-col items-center gap-1.5 shrink-0">
                                 <div class="relative w-12 h-16 rounded-xl overflow-hidden bg-marine-950 border border-slate-700">
-                                    <img src="${escapeHtml(avatar)}" alt="${safeName}" onerror="this.onerror=null;this.src='${fallbackAvatar}'" class="w-full h-full object-contain">
+                                    <img src="${escapeHtml(primary)}" loading="lazy" referrerpolicy="no-referrer" data-backup="${escapeHtml(backup)}" data-fallback="${escapeHtml(fallback)}" alt="${safeName}" onerror="handleImgError(this)" class="w-full h-full ${imgFitClass}">
                                 </div>
                                 <div>${rankDisplay}</div>
                             </div>
-
-                            <!-- Info Personel & Aksi -->
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-start justify-between gap-2">
                                     <div class="min-w-0">
@@ -1153,20 +2157,14 @@
                                         </div>
                                     </div>
                                 </div>
-
-                                <!-- Progres Target -->
                                 <div class="mt-2.5 flex items-center gap-2">
                                     <div class="flex-1 h-1.5 rounded-full bg-marine-950 overflow-hidden border border-slate-800">
                                         <div class="h-full ${barColor} rounded-full transition-all duration-500" style="width: ${pct}%"></div>
                                     </div>
                                     <span class="text-[10px] font-bold text-slate-400 shrink-0">${pct}%</span>
                                 </div>
-
-                                <!-- Status & Tombol Detail -->
                                 <div class="mt-2.5 flex items-center justify-between gap-2">
-                                    <div class="flex flex-wrap items-center gap-1 min-w-0">
-                                        ${statusBadge}
-                                    </div>
+                                    <div class="flex flex-wrap items-center gap-1 min-w-0">${statusBadge}</div>
                                     <button type="button" onclick="event.stopPropagation(); openMemberModal('${encodedName}')" class="px-3 py-1 rounded-lg bg-turq-400/15 hover:bg-turq-400 text-turq-400 hover:text-marine-950 text-xs font-bold border border-turq-400/40 transition shrink-0 cursor-pointer">
                                         Detail
                                     </button>
@@ -1178,9 +2176,7 @@
             });
 
             tbody.innerHTML = desktopRowsHtml.join('');
-            if (cardList) {
-                cardList.innerHTML = mobileCardsHtml.join('');
-            }
+            if (cardList) cardList.innerHTML = mobileCardsHtml.join('');
         }
 
         // =========================================================================
@@ -1192,24 +2188,23 @@
                 || currentAllRankedData.find(p => p.nama === targetName);
             if (!person) return;
 
-            const modalImgUrl = getAvatarUrl(person);
-            const fallbackUrl = buildFallbackAvatar(person.nama);
+            const { primary, backup, fallback, hasRealPhoto } = getAvatarSources(person);
             const modalImgEl = document.getElementById('modalAvatar');
             const modalBgEl = document.getElementById('modalAvatarBg');
 
-            modalImgEl.onerror = () => {
-                modalImgEl.onerror = null;
-                modalImgEl.src = fallbackUrl;
-            };
-            modalImgEl.src = modalImgUrl;
+            modalImgEl.setAttribute('data-backup', backup);
+            modalImgEl.setAttribute('data-fallback', fallback);
+            modalImgEl.onerror = function() { handleImgError(this); };
+            modalImgEl.src = primary;
 
             if (modalBgEl) {
-                modalBgEl.style.display = '';
-                modalBgEl.onerror = () => {
-                    modalBgEl.onerror = null;
+                if (hasRealPhoto) {
+                    modalBgEl.style.display = '';
+                    modalBgEl.onerror = () => { modalBgEl.style.display = 'none'; };
+                    modalBgEl.src = primary;
+                } else {
                     modalBgEl.style.display = 'none';
-                };
-                modalBgEl.src = modalImgUrl;
+                }
             }
 
             document.getElementById('modalRankBadge').textContent = `RANK #${person.rank}`;
@@ -1223,30 +2218,34 @@
             document.getElementById('modalKet').textContent = person.ket || 'Aktif Normal';
             document.getElementById('modalKet').title = person.ket || 'Aktif Normal';
 
-            // Render Activity Logs
             const logContainer = document.getElementById('modalActivityList');
-            const sortedLogs = [...person.logs].sort((a, b) => b.tanggal.localeCompare(a.tanggal));
-            if (sortedLogs.length === 0) {
+            // Kelompokkan log berdasarkan tanggal agar lebih ringkas & informatif (misal Tgl 4 Nov: 8 Giat)
+            const groupedByDate = new Map();
+            person.logs.forEach(l => {
+                const prev = groupedByDate.get(l.tanggal) || { count: 0, jabatan: l.jabatan || person.jabatan };
+                prev.count += 1;
+                groupedByDate.set(l.tanggal, prev);
+            });
+            const sortedDates = Array.from(groupedByDate.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+
+            if (sortedDates.length === 0) {
                 logContainer.innerHTML = `<p class="text-xs text-slate-400 italic py-4 text-center bg-marine-950/60 rounded-xl border border-slate-800">Belum ada catatan giat pada periode yang dipilih.</p>`;
             } else {
-                logContainer.innerHTML = sortedLogs.slice(0, 30).map(l => `
+                logContainer.innerHTML = sortedDates.slice(0, 31).map(([tgl, info]) => `
                     <div class="flex items-center justify-between gap-3 bg-marine-950/70 border border-slate-800/80 rounded-xl px-3.5 py-2.5 text-xs">
                         <div class="min-w-0">
-                            <p class="font-semibold text-slate-200 break-words">${escapeHtml(l.jenis_giat || 'Kegiatan Polisi RW')}</p>
-                            <p class="text-[11px] text-slate-400 mt-0.5 truncate">${escapeHtml(l.jabatan || person.jabatan)}</p>
+                            <p class="font-semibold text-slate-200 break-words">Laporan Giat Polisi RW (${info.count} Kegiatan)</p>
+                            <p class="text-[11px] text-slate-400 mt-0.5 truncate">${escapeHtml(info.jabatan)}</p>
                         </div>
                         <span class="px-2.5 py-1 rounded-lg bg-marine-900 text-turq-400 font-mono text-[11px] shrink-0 border border-slate-800">
-                            ${escapeHtml(formatIndoDate(l.tanggal))}
+                            ${escapeHtml(formatIndoDate(tgl))}
                         </span>
                     </div>
                 `).join('');
             }
 
-            // Render Weekly Bar Chart (label responsif agar tidak bertabrakan di layar HP)
             const ctx = document.getElementById('memberWeeklyChart').getContext('2d');
-            if (memberChartInstance) {
-                memberChartInstance.destroy();
-            }
+            if (memberChartInstance) memberChartInstance.destroy();
             const isNarrowScreen = window.innerWidth < 640;
             const weekLabels = isNarrowScreen
                 ? ['M1 (1-7)', 'M2 (8-14)', 'M3 (15-21)', 'M4 (22+)']
@@ -1268,9 +2267,7 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
+                    plugins: { legend: { display: false } },
                     scales: {
                         y: {
                             beginAtZero: true,
@@ -1297,26 +2294,473 @@
         }
 
         // =========================================================================
-        // 6. GOOGLE SHEETS MULTI-BULAN & SHEET FOTO PARSER ('ABSENSI POLISI-RW DIT 2026')
+        // 6. MODAL & EKSPOR REKAP GIAT BULANAN (.XLSX BERWARNA & .PDF A4 SIAP CETAK)
         // =========================================================================
-        function extractSpreadsheetId(rawUrl) {
-            if (!rawUrl) return DEFAULT_SPREADSHEET_ID;
-            const match = rawUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-            return match && match[1] ? match[1] : DEFAULT_SPREADSHEET_ID;
+        function isExcusedKet(ketText) {
+            if (!ketText) return false;
+            return /\b(DIKJUR|DIKBANG|SEKOLAH|SAKIT|CUTI|IZIN|KARHUTLA|DRIVER|DINAS|BKO|TUGAS\s*BELAJAR|HAMIL)\b/i.test(String(ketText));
         }
 
-        function getTabFingerprint(rows) {
-            if (!rows || rows.length === 0) return "";
-            return rows.slice(0, 15).map(r => (r || []).map(c => String(c || "").trim()).join("|")).join("\n");
+        function cleanReportKet(rawKet) {
+            if (!rawKet) return "";
+            // Jangan tampilkan label rotasi 'SPRIN BARU' / 'SPRIN LAMA' sebagai alasan kurang giat di kolom KET rekap
+            const parts = String(rawKet)
+                .split('|')
+                .map(s => s.trim())
+                .filter(s => s && !/^S\s*P\s*R\s*I\s*N\s*T?\s*(BARU|LAMA)?$/i.test(s));
+            return parts.join(', ');
         }
 
-        function tabHeaderMentionsMonth(rows, monthName) {
-            if (!rows || rows.length === 0) return false;
-            const headerText = rows.slice(0, 6).map(r => (r || []).join(" ")).join(" ").toUpperCase();
-            return headerText.includes(monthName.toUpperCase());
+        function getRekapOverrideKey(periodVal, personName) {
+            return `${periodVal}::${normalizeNameKey(personName)}`;
         }
 
-        // Robust CSV line parser handling quoted commas & multiline cells
+        function updateRekapManualKet(encodedName, newVal) {
+            const periodVal = document.getElementById('rekapMonthSelect').value;
+            const personName = decodeURIComponent(encodedName);
+            const key = getRekapOverrideKey(periodVal, personName);
+            manualRekapKetOverrides[key] = String(newVal || "").trim().toUpperCase();
+            renderRekapPreview();
+        }
+
+        function buildRekapDataset() {
+            const periodVal = document.getElementById('rekapMonthSelect').value;
+            const { allRanked } = computeDataForPeriod(periodVal, 'ALL', '', '');
+            const { target } = computeActiveTarget(periodVal, 'ALL', '');
+
+            const rows = allRanked.map((p, idx) => {
+                const ovKey = getRekapOverrideKey(periodVal, p.nama);
+                const defaultKet = cleanReportKet(p.ket);
+                const finalKet = Object.prototype.hasOwnProperty.call(manualRekapKetOverrides, ovKey)
+                    ? manualRekapKetOverrides[ovKey]
+                    : defaultKet.toUpperCase();
+                const excused = isExcusedKet(finalKet);
+                const isSakitZero = /\bSAKIT\b/i.test(finalKet) && p.totalGiat === 0;
+                const meetsTarget = p.totalGiat >= target;
+
+                // Aturan warna persis sesuai contoh laporan Polda Kalsel:
+                // 1. >= Target (12): NO Kuning (#FFFF00), NAMA/PANGKAT/JUMLAH/KET Putih (#FFFFFF)
+                // 2. < Target dengan keterangan khusus (DIKJUR/SAKIT/DRIVER/KARHUTLA/DINAS/dll): Biru Muda (#00B0F0)
+                // 3. < Target tanpa keterangan khusus: NO/NAMA/PANGKAT/JUMLAH Merah (#FF0000), KET Putih (#FFFFFF)
+                let rowType = 'red';
+                if (meetsTarget) rowType = 'met';
+                else if (excused) rowType = 'excused';
+
+                return {
+                    no: idx + 1,
+                    nama: p.nama.toUpperCase(),
+                    rawNama: p.nama,
+                    pangkat: (p.pangkat || '-').toUpperCase(),
+                    jumlah: p.totalGiat,
+                    ket: finalKet,
+                    isSakitZero,
+                    rowType
+                };
+            });
+
+            const grandTotal = rows.reduce((sum, r) => sum + r.jumlah, 0);
+            return { periodVal, target, rows, grandTotal };
+        }
+
+        function syncRekapTitlesForMonth(periodVal) {
+            const line2El = document.getElementById('rekapTitleLine2');
+            if (!line2El) return;
+            if (periodVal === 'ALL') {
+                line2El.value = `JANUARI S/D DESEMBER ${WORKBOOK_YEAR} POLDA KALSEL`;
+            } else {
+                const [y, m] = periodVal.split('-');
+                const mName = MONTH_NAMES_ID[parseInt(m, 10) - 1] || m;
+                line2El.value = `BULAN ${mName} ${y} POLDA KALSEL`;
+            }
+        }
+
+        function openRekapModal() {
+            const dashMonth = document.getElementById('filterMonth').value;
+            const rekapSelect = document.getElementById('rekapMonthSelect');
+            rekapSelect.value = dashMonth || `${WORKBOOK_YEAR}-11`;
+            syncRekapTitlesForMonth(rekapSelect.value);
+            renderRekapPreview();
+
+            const modal = document.getElementById('rekapModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeRekapModal() {
+            const modal = document.getElementById('rekapModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        function handleRekapMonthChange() {
+            const periodVal = document.getElementById('rekapMonthSelect').value;
+            syncRekapTitlesForMonth(periodVal);
+            renderRekapPreview();
+        }
+
+        function renderRekapPreview() {
+            const line1 = document.getElementById('rekapTitleLine1').value.trim() || 'REKAP JUMLAH KEGIATAN POLISI RW DITPOLAIRUD';
+            const line2 = document.getElementById('rekapTitleLine2').value.trim() || `BULAN NOVEMBER ${WORKBOOK_YEAR} POLDA KALSEL`;
+            const unitHeader = document.getElementById('rekapUnitHeader').value.trim() || 'DITPOLAIRUD POLDA KALSEL';
+
+            document.getElementById('previewHeader1').textContent = line1;
+            document.getElementById('previewHeader2').textContent = line2;
+            document.getElementById('previewUnitTh').textContent = unitHeader;
+
+            const { rows, grandTotal } = buildRekapDataset();
+            const tbody = document.getElementById('rekapPreviewBody');
+            const tfoot = document.getElementById('rekapPreviewFoot');
+
+            tbody.innerHTML = rows.map(r => {
+                let noBg = '#FFFF00';
+                let mainBg = '#FFFFFF';
+                let ketBg = '#FFFFFF';
+
+                if (r.rowType === 'red') {
+                    noBg = '#FF0000';
+                    mainBg = '#FF0000';
+                    ketBg = '#FFFFFF';
+                } else if (r.rowType === 'excused') {
+                    noBg = r.isSakitZero ? '#00B0F0' : '#FFFF00';
+                    mainBg = '#00B0F0';
+                    ketBg = '#00B0F0';
+                }
+
+                const jmlDisplay = r.isSakitZero
+                    ? `<span style="color:#DC2626;font-weight:800;">SAKIT</span>`
+                    : r.jumlah;
+                const encodedNama = encodeAttrParam(r.rawNama);
+                const ketValue = r.isSakitZero && r.ket === 'SAKIT' ? '' : r.ket;
+
+                return `
+                    <tr>
+                        <td class="text-center" style="background:${noBg};">${r.no}</td>
+                        <td class="text-left" style="background:${mainBg};">${escapeHtml(r.nama)}</td>
+                        <td class="text-center" style="background:${mainBg};">${escapeHtml(r.pangkat)}</td>
+                        <td class="text-center" style="background:${mainBg};">${jmlDisplay}</td>
+                        <td class="p-0" style="background:${ketBg};">
+                            <input type="text" value="${escapeHtml(r.ket)}" onchange="updateRekapManualKet('${encodedNama}', this.value)" placeholder="${ketValue ? '' : '-'}" title="Klik untuk isi keterangan (misal: DIKJUR, SAKIT, DRIVER, CUTI)" class="w-full h-full px-2 py-1 text-center text-xs font-bold uppercase bg-transparent text-black placeholder-black/25 focus:bg-yellow-100 focus:outline-none">
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            tfoot.innerHTML = `
+                <tr>
+                    <td colspan="3" class="text-center font-extrabold" style="background:#00FFFF;">JUMLAH</td>
+                    <td class="text-center font-extrabold" style="background:#FFFF00;">${grandTotal}</td>
+                    <td style="background:#00FFFF;"></td>
+                </tr>
+            `;
+        }
+
+        function getRekapFilenameBase() {
+            const periodVal = document.getElementById('rekapMonthSelect').value;
+            if (periodVal === 'ALL') return `REKAP_GIAT_POLISI_RW_DITPOLAIRUD_${WORKBOOK_YEAR}_TAHUNAN`;
+            const [y, m] = periodVal.split('-');
+            const mName = MONTH_NAMES_ID[parseInt(m, 10) - 1] || m;
+            return `REKAP_GIAT_POLISI_RW_DITPOLAIRUD_${mName}_${y}`;
+        }
+
+        async function downloadRekapExcel() {
+            if (typeof ExcelJS === 'undefined') {
+                alert('Pustaka ExcelJS sedang dimuat, silakan coba beberapa detik lagi.');
+                return;
+            }
+            const btn = document.getElementById('btnDownloadExcel');
+            const origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.textContent = 'Menyiapkan Excel...';
+
+            try {
+                const line1 = (document.getElementById('rekapTitleLine1').value.trim() || 'REKAP JUMLAH KEGIATAN POLISI RW DITPOLAIRUD').toUpperCase();
+                const line2 = (document.getElementById('rekapTitleLine2').value.trim() || `BULAN NOVEMBER ${WORKBOOK_YEAR} POLDA KALSEL`).toUpperCase();
+                const unitHeader = (document.getElementById('rekapUnitHeader').value.trim() || 'DITPOLAIRUD POLDA KALSEL').toUpperCase();
+                const { rows, grandTotal } = buildRekapDataset();
+
+                const wb = new ExcelJS.Workbook();
+                wb.creator = 'Dashboard Polisi RW Ditpolairud Polda Kalsel';
+                const ws = wb.addWorksheet('REKAP BULANAN', {
+                    pageSetup: {
+                        paperSize: 9, // A4
+                        orientation: 'portrait',
+                        fitToPage: true,
+                        fitToWidth: 1,
+                        fitToHeight: 0,
+                        horizontalCentered: true,
+                        margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 }
+                    }
+                });
+
+                ws.columns = [
+                    { key: 'no', width: 7 },
+                    { key: 'nama', width: 36 },
+                    { key: 'pangkat', width: 16 },
+                    { key: 'jumlah', width: 13 },
+                    { key: 'ket', width: 18 }
+                ];
+
+                // Judul Baris 1 & Baris 2 (dengan garis bawah tebal seperti contoh laporan)
+                ws.mergeCells('A1:E1');
+                const r1 = ws.getCell('A1');
+                r1.value = line1;
+                r1.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF000000' } };
+                r1.alignment = { horizontal: 'center', vertical: 'middle' };
+                ws.getRow(1).height = 20;
+
+                ws.mergeCells('A2:E2');
+                const r2 = ws.getCell('A2');
+                r2.value = line2;
+                r2.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FF000000' } };
+                r2.alignment = { horizontal: 'center', vertical: 'middle' };
+                ws.getRow(2).height = 22;
+                for (let c = 1; c <= 5; c++) {
+                    ws.getRow(2).getCell(c).border = { bottom: { style: 'medium', color: { argb: 'FF000000' } } };
+                }
+
+                ws.getRow(3).height = 10;
+
+                const thinBorder = {
+                    top: { style: 'thin', color: { argb: 'FF000000' } },
+                    left: { style: 'thin', color: { argb: 'FF000000' } },
+                    bottom: { style: 'thin', color: { argb: 'FF000000' } },
+                    right: { style: 'thin', color: { argb: 'FF000000' } }
+                };
+
+                const fillCyan = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00FFFF' } };
+                const fillYellow = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+                const fillRed = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF0000' } };
+                const fillBlue = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B0F0' } };
+                const fillWhite = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+
+                // Header Tabel (Baris 4)
+                const hdrRow = ws.getRow(4);
+                hdrRow.values = ['NO', unitHeader, 'PANGKAT', 'JUMLAH', 'KET'];
+                hdrRow.height = 24;
+                for (let c = 1; c <= 5; c++) {
+                    const cell = hdrRow.getCell(c);
+                    cell.fill = fillCyan;
+                    cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF000000' } };
+                    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    cell.border = thinBorder;
+                }
+
+                // Data Personel (Baris 5 .. N)
+                const firstDataRow = 5;
+                rows.forEach((r, idx) => {
+                    const rowNum = firstDataRow + idx;
+                    const row = ws.getRow(rowNum);
+                    const jmlCellVal = r.isSakitZero ? 'SAKIT' : r.jumlah;
+                    const ketCellVal = r.isSakitZero && r.ket === 'SAKIT' ? '' : r.ket;
+
+                    row.values = [r.no, r.nama, r.pangkat, jmlCellVal, ketCellVal];
+                    row.height = 20;
+
+                    let noFill = fillYellow;
+                    let mainFill = fillWhite;
+                    let ketFill = fillWhite;
+                    if (r.rowType === 'red') {
+                        noFill = fillRed;
+                        mainFill = fillRed;
+                        ketFill = fillWhite;
+                    } else if (r.rowType === 'excused') {
+                        noFill = r.isSakitZero ? fillBlue : fillYellow;
+                        mainFill = fillBlue;
+                        ketFill = fillBlue;
+                    }
+
+                    const c1 = row.getCell(1);
+                    c1.fill = noFill;
+                    c1.alignment = { horizontal: 'center', vertical: 'middle' };
+                    c1.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF000000' } };
+                    c1.border = thinBorder;
+
+                    const c2 = row.getCell(2);
+                    c2.fill = mainFill;
+                    c2.alignment = { horizontal: 'left', vertical: 'middle' };
+                    c2.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF000000' } };
+                    c2.border = thinBorder;
+
+                    const c3 = row.getCell(3);
+                    c3.fill = mainFill;
+                    c3.alignment = { horizontal: 'center', vertical: 'middle' };
+                    c3.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF000000' } };
+                    c3.border = thinBorder;
+
+                    const c4 = row.getCell(4);
+                    c4.fill = mainFill;
+                    c4.alignment = { horizontal: 'center', vertical: 'middle' };
+                    c4.font = {
+                        name: 'Arial',
+                        size: 10,
+                        bold: true,
+                        color: { argb: r.isSakitZero ? 'FFFF0000' : 'FF000000' }
+                    };
+                    c4.border = thinBorder;
+
+                    const c5 = row.getCell(5);
+                    c5.fill = ketFill;
+                    c5.alignment = { horizontal: 'center', vertical: 'middle' };
+                    c5.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF000000' } };
+                    c5.border = thinBorder;
+                });
+
+                // Baris Total JUMLAH di bagian paling bawah
+                const lastDataRow = firstDataRow + Math.max(0, rows.length - 1);
+                const totalRowIdx = firstDataRow + rows.length;
+                ws.mergeCells(`A${totalRowIdx}:C${totalRowIdx}`);
+                const totalRow = ws.getRow(totalRowIdx);
+                totalRow.height = 24;
+
+                const tLabel = totalRow.getCell(1);
+                tLabel.value = 'JUMLAH';
+                tLabel.alignment = { horizontal: 'center', vertical: 'middle' };
+                for (let c = 1; c <= 3; c++) {
+                    const mc = totalRow.getCell(c);
+                    mc.fill = fillCyan;
+                    mc.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF000000' } };
+                    mc.border = thinBorder;
+                }
+
+                const tSum = totalRow.getCell(4);
+                tSum.value = rows.length > 0
+                    ? { formula: `SUM(D${firstDataRow}:D${lastDataRow})`, result: grandTotal }
+                    : 0;
+                tSum.fill = fillYellow;
+                tSum.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF000000' } };
+                tSum.alignment = { horizontal: 'center', vertical: 'middle' };
+                tSum.border = thinBorder;
+
+                const tKet = totalRow.getCell(5);
+                tKet.value = '';
+                tKet.fill = fillCyan;
+                tKet.border = thinBorder;
+
+                const buffer = await wb.xlsx.writeBuffer();
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${getRekapFilenameBase()}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1500);
+            } catch (err) {
+                alert('Gagal membuat file Excel: ' + (err && err.message ? err.message : err));
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+
+        function downloadRekapPdf() {
+            if (!window.jspdf || !window.jspdf.jsPDF) {
+                alert('Pustaka PDF sedang dimuat, silakan coba beberapa detik lagi.');
+                return;
+            }
+            const btn = document.getElementById('btnDownloadPdf');
+            const origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.textContent = 'Menyiapkan PDF...';
+
+            try {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+                const line1 = (document.getElementById('rekapTitleLine1').value.trim() || 'REKAP JUMLAH KEGIATAN POLISI RW DITPOLAIRUD').toUpperCase();
+                const line2 = (document.getElementById('rekapTitleLine2').value.trim() || `BULAN NOVEMBER ${WORKBOOK_YEAR} POLDA KALSEL`).toUpperCase();
+                const unitHeader = (document.getElementById('rekapUnitHeader').value.trim() || 'DITPOLAIRUD POLDA KALSEL').toUpperCase();
+                const { rows, grandTotal } = buildRekapDataset();
+
+                // Judul Tengah Halaman 1 + Garis Bawah Tebal
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(12.5);
+                doc.setTextColor(0, 0, 0);
+                doc.text(line1, 105, 14, { align: 'center' });
+                doc.text(line2, 105, 20, { align: 'center' });
+                doc.setLineWidth(0.7);
+                doc.line(15, 22.5, 195, 22.5);
+
+                const bodyData = rows.map(r => {
+                    const jmlText = r.isSakitZero ? 'SAKIT' : String(r.jumlah);
+                    const ketText = r.isSakitZero && r.ket === 'SAKIT' ? '' : r.ket;
+                    return [String(r.no), r.nama, r.pangkat, jmlText, ketText];
+                });
+
+                // Tambahkan baris total di akhir tabel
+                bodyData.push([
+                    { content: 'JUMLAH', colSpan: 3, styles: { halign: 'center', fillColor: [0, 255, 255], fontStyle: 'bold' } },
+                    { content: String(grandTotal), styles: { halign: 'center', fillColor: [255, 255, 0], fontStyle: 'bold' } },
+                    { content: '', styles: { fillColor: [0, 255, 255] } }
+                ]);
+
+                doc.autoTable({
+                    startY: 26,
+                    margin: { left: 15, right: 15, top: 14, bottom: 14 },
+                    head: [['NO', unitHeader, 'PANGKAT', 'JUMLAH', 'KET']],
+                    body: bodyData,
+                    theme: 'grid',
+                    styles: {
+                        font: 'helvetica',
+                        fontStyle: 'bold',
+                        fontSize: 8.8,
+                        textColor: [0, 0, 0],
+                        lineColor: [0, 0, 0],
+                        lineWidth: 0.3,
+                        cellPadding: { top: 1.8, right: 2.2, bottom: 1.8, left: 2.2 },
+                        valign: 'middle'
+                    },
+                    headStyles: {
+                        fillColor: [0, 255, 255],
+                        textColor: [0, 0, 0],
+                        halign: 'center',
+                        fontSize: 9.2,
+                        minCellHeight: 8
+                    },
+                    columnStyles: {
+                        0: { cellWidth: 12, halign: 'center' },
+                        1: { cellWidth: 78, halign: 'left' },
+                        2: { cellWidth: 30, halign: 'center' },
+                        3: { cellWidth: 24, halign: 'center' },
+                        4: { cellWidth: 36, halign: 'center' }
+                    },
+                    didParseCell: function(data) {
+                        if (data.section !== 'body') return;
+                        const rIdx = data.row.index;
+                        if (rIdx >= rows.length) return; // baris total sudah diatur
+                        const rInfo = rows[rIdx];
+                        const colIdx = data.column.index;
+
+                        if (rInfo.rowType === 'met') {
+                            data.cell.styles.fillColor = colIdx === 0 ? [255, 255, 0] : [255, 255, 255];
+                        } else if (rInfo.rowType === 'excused') {
+                            if (colIdx === 0 && !rInfo.isSakitZero) {
+                                data.cell.styles.fillColor = [255, 255, 0];
+                            } else {
+                                data.cell.styles.fillColor = [0, 176, 240];
+                            }
+                            if (colIdx === 3 && rInfo.isSakitZero) {
+                                data.cell.styles.textColor = [220, 0, 0];
+                            }
+                        } else {
+                            data.cell.styles.fillColor = colIdx === 4 ? [255, 255, 255] : [255, 0, 0];
+                        }
+                    }
+                });
+
+                doc.save(`${getRekapFilenameBase()}.pdf`);
+            } catch (err) {
+                alert('Gagal membuat file PDF: ' + (err && err.message ? err.message : err));
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+            }
+        }
+
+        // =========================================================================
+        // 7. SINKRONISASI LIVE GOOGLE SHEETS (12 BULAN + TAB FOTO BERBASIS GID)
+        // =========================================================================
         function parseCSV(text) {
             const rows = [];
             let currentRow = [];
@@ -1341,7 +2785,7 @@
                     currentRow = [];
                     currentVal = '';
                     if (char === '\r') i++;
-                } else {
+                } else if (char !== '\r') {
                     currentVal += char;
                 }
             }
@@ -1352,7 +2796,6 @@
             return rows;
         }
 
-        // Konversi objek respon gviz (baik dari fetch maupun JSONP) ke array 2D baris x kolom
         function gvizObjectToRows(parsed) {
             const table = parsed && parsed.table;
             if (!table || !Array.isArray(table.rows)) return null;
@@ -1385,8 +2828,8 @@
             return gvizObjectToRows(parsed);
         }
 
-        // JSONP loader untuk gviz/tq: memungkinkan membaca Google Sheets meskipun HTML dibuka via file:// (bypass CORS)
-        function fetchGvizJsonp(spreadsheetId, tabName, timeoutMs = 8500) {
+        // JSONP loader dengan dukungan parameter gid eksak (bekerja saat dibuka langsung lewat file:// lokal)
+        function fetchGvizJsonp(spreadsheetId, gid, tabName, timeoutMs = 9000) {
             return new Promise((resolve) => {
                 const cbName = `__gvizCb_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
                 const script = document.createElement('script');
@@ -1425,157 +2868,98 @@
                     resolve(null);
                 };
 
-                const encodedSheet = encodeURIComponent(tabName);
+                const targetParam = gid !== null && gid !== undefined && gid !== ""
+                    ? `gid=${encodeURIComponent(gid)}`
+                    : `sheet=${encodeURIComponent(tabName)}`;
                 const tqx = encodeURIComponent(`out:json;responseHandler:${cbName}`);
-                script.src = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?sheet=${encodedSheet}&headers=0&tqx=${tqx}`;
+                script.src = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?${targetParam}&headers=0&tqx=${tqx}`;
                 document.head.appendChild(script);
             });
         }
 
-        // Ambil seluruh tab sekaligus jika user memakai Apps Script Web App yang mengembalikan { sheets: { JANUARI: [...], ... } }
-        async function fetchAllFromAppsScript(appsScriptUrl) {
-            if (!appsScriptUrl) return null;
-            try {
-                const res = await fetch(appsScriptUrl);
-                if (!res.ok) return null;
-                const txt = await res.text();
-                if (/<!doctype html|<html/i.test(txt)) return null;
-                const parsed = JSON.parse(txt);
-                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-                    const container = parsed.sheets || parsed.tabs || parsed;
-                    const normalizedMap = {};
-                    Object.keys(container).forEach(k => {
-                        const val = container[k];
-                        if (Array.isArray(val) && val.length > 0) {
-                            if (Array.isArray(val[0])) {
-                                normalizedMap[k.trim().toUpperCase()] = val;
-                            } else if (typeof val[0] === 'object') {
-                                const keys = Object.keys(val[0]);
-                                normalizedMap[k.trim().toUpperCase()] = [keys, ...val.map(obj => keys.map(col => obj[col] ?? ""))];
-                            }
-                        }
-                    });
-                    if (Object.keys(normalizedMap).length > 0) return normalizedMap;
-                }
-            } catch (_) {}
-            return null;
-        }
+        async function fetchSheetTabRows(spreadsheetId, gid, tabCandidates, forceFresh = false) {
+            const isFileProtocol = window.location.protocol === 'file:';
+            const cacheBuster = forceFresh ? `&_ts=${Date.now()}` : '';
 
-        // Strategi multi-endpoint untuk mengambil satu tab berdasarkan nama tab
-        async function fetchSheetTabRows(spreadsheetId, tabCandidates, customBaseUrl, appsScriptUrl, bulkAppsScriptMap) {
-            // 0. Cek apakah sudah tersedia dari bulk Apps Script JSON
-            if (bulkAppsScriptMap) {
-                for (const tabName of tabCandidates) {
-                    const key = tabName.trim().toUpperCase();
-                    if (bulkAppsScriptMap[key] && bulkAppsScriptMap[key].length > 0) {
-                        return bulkAppsScriptMap[key];
-                    }
-                }
-            }
-
-            // 1. Jika ada Google Apps Script Web App URL, coba ambil via parameter ?sheet=
-            if (appsScriptUrl) {
-                for (const tabName of tabCandidates) {
-                    try {
-                        const sep = appsScriptUrl.includes("?") ? "&" : "?";
-                        const res = await fetch(`${appsScriptUrl}${sep}sheet=${encodeURIComponent(tabName)}`);
-                        if (!res.ok) continue;
-                        const txt = await res.text();
-                        if (/<!doctype html|<html/i.test(txt)) continue;
-                        try {
-                            const j = JSON.parse(txt);
-                            const arr = Array.isArray(j) ? j : (Array.isArray(j.rows) ? j.rows : (Array.isArray(j.data) ? j.data : null));
-                            if (arr && arr.length > 0) {
-                                if (Array.isArray(arr[0])) return arr;
-                                const keys = Object.keys(arr[0]);
-                                return [keys, ...arr.map(obj => keys.map(k => obj[k] ?? ""))];
-                            }
-                        } catch (_) {
-                            const csvRows = parseCSV(txt);
-                            if (csvRows.length > 0) return csvRows;
-                        }
-                    } catch (_) {}
-                }
-            }
-
-            // 2. Jika user memasukkan tautan CSV langsung (bukan link spreadsheet edit)
-            if (customBaseUrl && !customBaseUrl.includes("/spreadsheets/d/")) {
-                try {
-                    const res = await fetch(customBaseUrl);
-                    if (res.ok) {
-                        const txt = await res.text();
-                        if (!/<!doctype html|<html/i.test(txt)) {
-                            const rows = parseCSV(txt);
-                            if (rows.length > 0) return rows;
-                        }
-                    }
-                } catch (_) {}
-            }
-
-            // 3. Coba gviz/tq JSON (headers=0 agar baris 1-31 tidak hilang sebagai label kolom), CSV, lalu JSONP fallback
-            for (const tabName of tabCandidates) {
-                const encodedSheet = encodeURIComponent(tabName);
-                const endpoints = [
-                    `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=0&sheet=${encodedSheet}`,
-                    `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodedSheet}`
+            // 1. Prioritas Utama di Web (HTTPS/HTTP): /export?format=csv&gid=<GID>
+            //    Menjaga 100% sel teks (seperti DIKJUR, SPRIN BARU, DRIVER, JUMLAH, NO) yang sering dihapus oleh gviz!
+            if (!isFileProtocol && gid !== null && gid !== undefined && gid !== "") {
+                const csvEndpoints = [
+                    `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}${cacheBuster}`,
+                    `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&gid=${gid}${cacheBuster}`,
+                    `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&headers=0&gid=${gid}${cacheBuster}`
                 ];
-
-                for (const url of endpoints) {
+                for (const url of csvEndpoints) {
                     try {
-                        const res = await fetch(url);
+                        const res = await fetch(url, forceFresh ? { cache: 'no-store' } : undefined);
                         if (!res.ok) continue;
                         const txt = await res.text();
                         if (!txt || /<!doctype html|<html/i.test(txt)) continue;
-
                         if (url.includes("out:json")) {
-                            const gvizRows = parseGvizJsonToRows(txt);
-                            if (gvizRows && gvizRows.length > 0) return gvizRows;
+                            const gRows = parseGvizJsonToRows(txt);
+                            if (gRows && gRows.length > 0) return gRows;
                         } else {
-                            const csvRows = parseCSV(txt);
-                            if (csvRows.length > 0) return csvRows;
+                            const cRows = parseCSV(txt);
+                            if (cRows && cRows.length > 0) return cRows;
                         }
                     } catch (_) {}
                 }
+            }
 
-                // Fallback JSONP (bekerja saat dibuka langsung lewat file:// atau CORS diblokir browser)
-                const jsonpRows = await fetchGvizJsonp(spreadsheetId, tabName);
-                if (jsonpRows && jsonpRows.length > 0) return jsonpRows;
+            // 2. Fallback JSONP via GID (bekerja saat file dibuka via file:// lokal tanpa server)
+            if (gid !== null && gid !== undefined && gid !== "") {
+                const jsonpByGid = await fetchGvizJsonp(spreadsheetId, gid, "");
+                if (jsonpByGid && jsonpByGid.length > 0) return jsonpByGid;
+            }
+
+            // 3. Cadangan via nama tab apabila suatu saat GID berubah
+            for (const tabName of (tabCandidates || [])) {
+                if (!isFileProtocol) {
+                    try {
+                        const encodedSheet = encodeURIComponent(tabName);
+                        const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodedSheet}${cacheBuster}`;
+                        const res = await fetch(url);
+                        if (res.ok) {
+                            const txt = await res.text();
+                            if (txt && !/<!doctype html|<html/i.test(txt)) {
+                                const cRows = parseCSV(txt);
+                                if (cRows && cRows.length > 0) return cRows;
+                            }
+                        }
+                    } catch (_) {}
+                }
+                const jsonpByName = await fetchGvizJsonp(spreadsheetId, "", tabName);
+                if (jsonpByName && jsonpByName.length > 0) return jsonpByName;
             }
 
             return null;
         }
 
-        // Ekstrak peta foto & jabatan/pangkat anggota dari tab 'Foto' (NO, NAMA, PANGKAT, FOTO/URL)
         function parseFotoSheetData(rows) {
             const photoMap = new Map();
             const profileMap = new Map();
             if (!rows || rows.length === 0) return { photoMap, profileMap };
 
-            const pangkatRegex = /^(KOMBES|AKBP|KOMPOL|AKP|IPTU|IPDA|AIPTU|AIPDA|BRIPKA|BRIGADIR|BRIGADR|BRIPTU|BRIPDA|ABRIP|ABRIPTU|ABRIPDA|BHARAKA|BHARATU|BHARADA)\b/i;
+            const pangkatRegex = /^(KOMBES|AKBP|KOMPOL|AKP|IPTU|IPDA|AIPTU|AIPDA|BRIPKA|BRIGADIR|BRIGADR|BRIGPOL|BRIPTU|BRIPDA|ABRIP|ABRIPTU|ABRIPDA|BHARAKA|BHARATU|BHARADA)\b/i;
 
             rows.forEach((row) => {
                 const nonEmpty = row.map(c => String(c || "").trim());
                 if (nonEmpty.every(c => !c)) return;
 
-                let foundUrl = "";
+                let foundRawUrl = "";
                 let foundName = "";
                 let foundPangkat = "";
-                let foundNrp = "";
 
                 nonEmpty.forEach((cell) => {
-                    const parsedImgUrl = (/^https?:\/\//i.test(cell) || /=IMAGE\s*\(/i.test(cell))
-                        ? normalizePhotoUrl(cell)
-                        : "";
-                    if (parsedImgUrl) {
-                        foundUrl = parsedImgUrl;
-                    } else if (/^\d{6,18}$/.test(cell)) {
-                        foundNrp = cell;
+                    if (/^https?:\/\//i.test(cell) || /=IMAGE\s*\(/i.test(cell)) {
+                        const { primary } = getPhotoUrls(cell);
+                        if (primary) foundRawUrl = cell;
                     } else if (pangkatRegex.test(cell)) {
-                        foundPangkat = cell;
+                        foundPangkat = normalizePangkat(cell);
                     } else if (
                         cell.length >= 2 &&
                         !/^\d+$/.test(cell) &&
-                        !/^(NO|NAMA|NAMA ANGGOTA|PANGKAT|NRP|FOTO|PHOTO|URL|LINK|JABATAN)$/i.test(cell)
+                        !/^(NO|NAMA|NAMA ANGGOTA|PANGKAT|NRP|FOTO|URL_FOTO|PHOTO|URL|LINK|JABATAN)$/i.test(cell)
                     ) {
                         if (!foundName && /[A-Z]/i.test(cell)) {
                             foundName = cell;
@@ -1583,17 +2967,14 @@
                     }
                 });
 
-                if (foundName || foundNrp) {
-                    const key = foundName ? normalizeNameKey(foundName) : foundNrp;
-                    if (foundUrl) {
-                        if (foundNrp) photoMap.set(foundNrp, foundUrl);
-                        if (key) photoMap.set(key, foundUrl);
-                    }
+                if (foundName) {
+                    const key = normalizeNameKey(foundName);
                     if (key) {
+                        if (foundRawUrl) photoMap.set(key, foundRawUrl);
                         profileMap.set(key, {
                             nama: foundName,
                             pangkat: foundPangkat,
-                            foto: foundUrl
+                            foto: foundRawUrl
                         });
                     }
                 }
@@ -1602,11 +2983,18 @@
             return { photoMap, profileMap };
         }
 
-        // Parse satu tab bulanan format 'ABSENSI POLISI-RW DIT 2026'
-        // Struktur aktual spreadsheet: NO | NAMA | PANGKAT | 1..31 | JMLH | KET | (Kolom Jabatan di ujung kanan, misal DAN KP XIII-1007 / KP XIII-2003)
+        function normalizeSpecialNoteToken(rawCell) {
+            const cleaned = String(rawCell || "").replace(/\s+/g, " ").trim();
+            if (!cleaned || cleaned === "-" || cleaned === "–") return "";
+            if (/^S\s*P\s*R\s*I\s*N\s*T?\s*B\s*A\s*R\s*U$/i.test(cleaned)) return "SPRIN BARU";
+            if (/^S\s*P\s*R\s*I\s*N\s*T?\s*L\s*A\s*M\s*A$/i.test(cleaned)) return "SPRIN LAMA";
+            return cleaned.toUpperCase();
+        }
+
+        // Parser akurat untuk tab bulanan 'ABSENSI POLISI-RW DIT 2026' (baik dari CSV murni maupun gviz JSONP)
         function parseMonthlyAttendanceSheet(rows, monthName, monthIndex, photoMap) {
             const monthNum = String(monthIndex + 1).padStart(2, "0");
-            const daysInMonth = new Date(ACTIVE_YEAR, monthIndex + 1, 0).getDate();
+            const daysInMonth = new Date(WORKBOOK_YEAR, monthIndex + 1, 0).getDate();
             const logs = [];
             const personnelMap = new Map();
 
@@ -1618,23 +3006,24 @@
             let colJabatan = -1;
             let colJmlh = -1;
             let colKet = -1;
-            const dayColumnMap = {}; // { dayNum (1..31): colIdx }
+            let colFoto = -1;
+            const dayColumnMap = {};
 
-            // 1. Cari baris header utama (NO, NAMA, PANGKAT, <BULAN>, JMLH, KET) atau baris tanggal 1..31
-            for (let r = 0; r < Math.min(rows.length, 15); r++) {
+            // 1. Deteksi baris header utama (NO, NAMA, PANGKAT, 1..31, JMLH/JUMLAH, KET, FOTO)
+            for (let r = 0; r < Math.min(rows.length, 20); r++) {
                 const row = rows[r].map(c => String(c || "").trim());
                 const namaIdx = row.findIndex(c => /^NAMA(\s|$)/i.test(c) || c.toUpperCase() === "NAMA ANGGOTA");
                 const pangkatIdx = row.findIndex(c => /^PANGKAT/i.test(c));
                 const jabatanIdx = row.findIndex(c => /^(JABATAN|SATUAN|KP|RW|WILAYAH|KESATUAN)/i.test(c));
-                const jmlhIdx = row.findIndex(c => /^(JMLH|JUMLAH|TOTAL|CAPAIAN)/i.test(c));
-                const ketIdx = row.findIndex(c => /^(KET|KETERANGAN)/i.test(c));
+                const jmlhIdx = row.findIndex(c => /^(JML|JMLH|JUMLAH|TOTAL|CAPAIAN)\b/i.test(c));
+                const ketIdx = row.findIndex(c => /^(KET|KETERANGAN)\b/i.test(c));
+                const fotoIdx = row.findIndex(c => /^(FOTO|URL_FOTO|PHOTO)\b/i.test(c));
 
                 const foundDays = {};
                 row.forEach((cell, cIdx) => {
-                    const cleaned = cell.replace(/[^\d]/g, "");
-                    const num = parseInt(cleaned, 10);
-                    if (cleaned !== "" && String(num) === cleaned && num >= 1 && num <= 31) {
-                        foundDays[num] = cIdx;
+                    if (/^\d{1,2}$/.test(cell)) {
+                        const num = parseInt(cell, 10);
+                        if (num >= 1 && num <= 31) foundDays[num] = cIdx;
                     }
                 });
 
@@ -1645,20 +3034,20 @@
                     if (jabatanIdx !== -1) colJabatan = jabatanIdx;
                     if (jmlhIdx !== -1) colJmlh = jmlhIdx;
                     if (ketIdx !== -1) colKet = ketIdx;
+                    if (fotoIdx !== -1) colFoto = fotoIdx;
                     Object.assign(dayColumnMap, foundDays);
                     break;
                 }
             }
 
-            // 2. Jika baris angka 1..31 berada 1-2 baris di bawah header NAMA/BULAN (merged header)
+            // 2. Jika angka 1..31 berada 1-2 baris di bawah header NAMA (merged header)
             if (headerRowIdx !== -1 && Object.keys(dayColumnMap).length < 5) {
                 for (let offset = 1; offset <= 2 && headerRowIdx + offset < rows.length; offset++) {
                     const subRow = rows[headerRowIdx + offset].map(c => String(c || "").trim());
                     subRow.forEach((cell, cIdx) => {
-                        const cleaned = cell.replace(/[^\d]/g, "");
-                        const num = parseInt(cleaned, 10);
-                        if (cleaned !== "" && String(num) === cleaned && num >= 1 && num <= 31) {
-                            dayColumnMap[num] = cIdx;
+                        if (/^\d{1,2}$/.test(cell)) {
+                            const num = parseInt(cell, 10);
+                            if (num >= 1 && num <= 31) dayColumnMap[num] = cIdx;
                         }
                     });
                     if (Object.keys(dayColumnMap).length >= 5) {
@@ -1668,38 +3057,31 @@
                 }
             }
 
-            // Fallback default posisi kolom standar (Col 0: NO, Col 1: NAMA, Col 2: PANGKAT, Col 3..33: Tgl 1..31)
             if (colNama === -1) colNama = 1;
             if (colPangkat === -1) colPangkat = 2;
             if (Object.keys(dayColumnMap).length === 0) {
-                for (let d = 1; d <= 31; d++) {
-                    dayColumnMap[d] = d + 2;
-                }
+                for (let d = 1; d <= 31; d++) dayColumnMap[d] = d + 2;
             }
 
             const maxDayColIdx = Math.max(...Object.values(dayColumnMap));
 
-            // Jika JMLH belum terdeteksi dari header, posisinya tepat setelah kolom tanggal terakhir (col 34)
-            if (colJmlh === -1) colJmlh = maxDayColIdx + 1;
-            if (colKet === -1) colKet = maxDayColIdx + 2;
-
-            // Deteksi kolom Jabatan/Kapal (misal kolom 36 / AJ yang berisi "DAN KP XIII-1007", "KP MARTAPURA", dll)
-            const startRow = headerRowIdx !== -1 ? headerRowIdx + 1 : 0;
-            if (colJabatan === -1) {
-                for (let r = startRow; r < Math.min(rows.length, startRow + 25); r++) {
-                    const row = rows[r] || [];
-                    for (let c = maxDayColIdx + 1; c < row.length; c++) {
-                        if (c === colJmlh || c === colKet) continue;
-                        const val = String(row[c] || "").trim();
-                        if (/^(DAN\s+)?KP[\s-]|KPC[\s-]|BARITO|MARTAPURA|DITPOLAIRUD/i.test(val)) {
-                            colJabatan = c;
-                            break;
-                        }
-                    }
-                    if (colJabatan !== -1) break;
+            // Perbaikan bug off-by-one bulan 30 hari (misal September & November memiliki kolom AH kosong di index 33 dan JUMLAH di index 34)
+            if (colJmlh === -1) {
+                if (colKet > maxDayColIdx + 1) {
+                    colJmlh = colKet - 1;
+                } else {
+                    colJmlh = maxDayColIdx + 1;
                 }
             }
+            if (colKet === -1) colKet = colJmlh + 1;
 
+            // Sertakan kolom ekstra di antara maxDayColIdx dan colJmlh (misal AH pada bulan 30 hari) agar sama persis dengan rumus =SUM(D:AH)
+            for (let extraCol = maxDayColIdx + 1; extraCol < colJmlh; extraCol++) {
+                dayColumnMap[31 + (extraCol - maxDayColIdx - 1)] = extraCol;
+            }
+
+            const startRow = headerRowIdx !== -1 ? headerRowIdx + 1 : 0;
+            const isJabatanPattern = /^(DAN\s+)?KP[\s-]|^KPC[\s-]|BARITO|MARTAPURA|DITPOLAIRUD/i;
             let lastMainPerson = null;
             let autoSeq = 1;
 
@@ -1709,16 +3091,71 @@
 
                 const rawNo = (row[0] || "").trim();
                 const rawNama = (row[colNama] || "").trim();
-                const rawPangkat = colPangkat !== -1 ? (row[colPangkat] || "").trim() : "";
+                const rawPangkat = normalizePangkat(colPangkat !== -1 ? (row[colPangkat] || "") : "");
                 const rawJmlh = colJmlh !== -1 && colJmlh < row.length ? (row[colJmlh] || "").trim() : "";
                 const rawKetOriginal = colKet !== -1 && colKet < row.length ? (row[colKet] || "").trim() : "";
-                const isJabatanPattern = /^(DAN\s+)?KP[\s-]|KPC[\s-]|BARITO|MARTAPURA|DITPOLAIRUD/i;
+                const rawRowFoto = colFoto !== -1 && colFoto < row.length ? (row[colFoto] || "").trim() : "";
 
-                // Cari jabatan dari colJabatan atau kolom terakhir setelah KET jika berisi KP/DAN KP
+                // BERHENTI (break) tepat pada baris total JUMLAH bawah atau awal tabel arsip 'ABSENSI SEBELUMNYA'
+                // Mencegah bug penghitungan ganda pada tab JANUARI & MEI!
+                const rowJoinedUpper = `${rawNo} ${rawNama}`.toUpperCase();
+                if (/^(JUMLAH|TOTAL|REKAP)\b/i.test(rawNo) ||
+                    /^(JUMLAH|TOTAL|REKAP)\b/i.test(rawNama) ||
+                    /ABSENSI\s+SEBELUMNYA/i.test(rowJoinedUpper)) {
+                    if (personnelMap.size > 0) break;
+                    continue;
+                }
+                if (personnelMap.size >= 15 && /^NAMA(\s|$)/i.test(rawNama)) {
+                    break;
+                }
+
+                // Hitung sel harian numerik & catatan khusus
+                const dailyEntries = [];
+                let numericDailySum = 0;
+                let numericCellsCount = 0;
+                const noteTokens = new Set();
+
+                Object.keys(dayColumnMap).forEach(dayStr => {
+                    const dayNum = parseInt(dayStr, 10);
+                    const cIdx = dayColumnMap[dayNum];
+                    const cellVal = (row[cIdx] || "").trim();
+                    if (!cellVal) return;
+
+                    const numVal = Number(cellVal.replace(",", "."));
+                    if (!Number.isNaN(numVal) && /^-?\d+([.,]\d+)?$/.test(cellVal)) {
+                        numericCellsCount++;
+                        if (numVal > 0) {
+                            const countForDay = Math.round(numVal);
+                            numericDailySum += countForDay;
+                            const clampedDay = Math.min(Math.max(1, dayNum), daysInMonth);
+                            dailyEntries.push({
+                                day: clampedDay,
+                                date: `${WORKBOOK_YEAR}-${monthNum}-${String(clampedDay).padStart(2, "0")}`,
+                                count: countForDay
+                            });
+                        }
+                    } else {
+                        const tok = normalizeSpecialNoteToken(cellVal);
+                        if (tok) noteTokens.add(tok);
+                    }
+                });
+
+                const parsedJmlh = /^\d+([.,]\d+)?$/.test(rawJmlh) ? Math.round(Number(rawJmlh.replace(",", "."))) : null;
+
+                // Deteksi baris ringkasan bawah versi gviz JSONP (di mana teks "JUMLAH" di kolom 0 terhapus menjadi kosong)
+                if (!rawNo && !rawNama && !rawPangkat && personnelMap.size >= 15 && (numericCellsCount >= 5 || parsedJmlh !== null)) {
+                    break;
+                }
+
+                // Lewati baris tanda tangan pejabat di bawah jika ada
+                if (/^(MENGETAHUI|DIREKTUR|KASUBDIT|KANIT|ABSENSI HARIAN)/i.test(rawNama)) {
+                    continue;
+                }
+
                 let rawJabatan = colJabatan !== -1 && colJabatan < row.length ? (row[colJabatan] || "").trim() : "";
                 if (!rawJabatan) {
                     for (let c = row.length - 1; c > maxDayColIdx; c--) {
-                        if (c === colJmlh || c === colKet) continue;
+                        if (c === colJmlh || c === colFoto) continue;
                         if (isJabatanPattern.test(row[c])) {
                             rawJabatan = row[c];
                             break;
@@ -1726,271 +3163,228 @@
                     }
                 }
 
-                // Jika kolom KET ternyata berisi jabatan/kapal (misal 'KP XIII-2003'), pindahkan ke jabatan agar tidak duplikat di Keterangan
                 let rawKet = rawKetOriginal;
                 if (rawKet && isJabatanPattern.test(rawKet)) {
                     if (!rawJabatan) rawJabatan = rawKet;
                     rawKet = "";
                 }
-
-                // Lewati baris header berulang, rekap total, atau tanda tangan pejabat
-                if (/^(NAMA|JUMLAH|TOTAL|REKAP|MENGETAHUI|DIREKTUR|KASUBDIT|KANIT|ABSENSI HARIAN)/.test(rawNama.toUpperCase()) ||
-                    (/^(JUMLAH|TOTAL)\s*$/i.test(rawNo) && !rawNama)) {
-                    continue;
+                if (rawKet) {
+                    const cleanK = normalizeSpecialNoteToken(rawKet);
+                    if (cleanK) noteTokens.add(cleanK);
                 }
 
-                // Deteksi baris sub-catatan (misal 'S P R I N   B A R U' / 'S P R I N   L A M A')
                 const compactText = `${rawNo} ${rawNama} ${rawPangkat} ${rawKet}`.toUpperCase().replace(/\s+/g, "");
                 const isSubSprinRow = !rawNama && /SPRIN/.test(compactText);
 
-                // Ekstrak nilai harian (1..31) yang numerik
-                const dailyEntries = [];
-                let numericDailySum = 0;
-                const nonNumericNotes = [];
-
-                Object.keys(dayColumnMap).forEach(dayStr => {
-                    const dayNum = parseInt(dayStr, 10);
-                    if (dayNum > daysInMonth) return;
-                    const cIdx = dayColumnMap[dayNum];
-                    const cellVal = (row[cIdx] || "").trim();
-                    if (!cellVal) return;
-
-                    const numVal = Number(cellVal.replace(",", "."));
-                    if (!Number.isNaN(numVal) && numVal > 0 && /^-?\d+([.,]\d+)?$/.test(cellVal)) {
-                        const countForDay = Math.round(numVal);
-                        numericDailySum += countForDay;
-                        const clampedDay = Math.min(dayNum, daysInMonth);
-                        dailyEntries.push({
-                            day: clampedDay,
-                            date: `${ACTIVE_YEAR}-${monthNum}-${String(clampedDay).padStart(2, "0")}`,
-                            count: countForDay
-                        });
-                    } else if (!/^-?\d+([.,]\d+)?$/.test(cellVal)) {
-                        // Catatan non-angka di sel tanggal (misal 'S P R I N B A R U', 'I', 'S', 'C', 'DIKJUR')
-                        const cleanNote = cellVal.replace(/\s{2,}/g, " ");
-                        nonNumericNotes.push(`Tgl ${dayNum}: ${cleanNote}`);
-                    }
-                });
-
-                const parsedJmlh = /^\d+$/.test(rawJmlh) ? parseInt(rawJmlh, 10) : null;
-
-                // Jika baris adalah sub-row SPRIN tanpa kolom nama terisi, gabungkan ke personel utama di atasnya
                 if (isSubSprinRow && lastMainPerson) {
-                    const noteLabel = `${rawNo} ${rawNama} ${rawPangkat} ${rawKet}`.replace(/\s+/g, " ").trim();
+                    const noteLabel = normalizeSpecialNoteToken(`${rawNo} ${rawPangkat} ${rawKet}`);
                     if (noteLabel && !lastMainPerson.ket.includes(noteLabel)) {
                         lastMainPerson.ket = lastMainPerson.ket ? `${lastMainPerson.ket} | ${noteLabel}` : noteLabel;
                     }
-                    if (numericDailySum > 0) {
-                        dailyEntries.forEach(de => {
-                            for (let k = 0; k < de.count; k++) {
-                                logs.push({
-                                    tanggal: de.date,
-                                    bulan: monthName,
-                                    nrp: lastMainPerson.nrp,
-                                    nama: lastMainPerson.nama,
-                                    pangkat: lastMainPerson.pangkat,
-                                    rw: lastMainPerson.jabatan,
-                                    jabatan: lastMainPerson.jabatan,
-                                    ket: lastMainPerson.ket,
-                                    jenis_giat: `${noteLabel || "Kegiatan Polisi RW"} (${monthName})`,
-                                    foto: lastMainPerson.foto
-                                });
-                            }
-                        });
-                    }
+                    dailyEntries.forEach(de => {
+                        for (let k = 0; k < de.count; k++) {
+                            logs.push({
+                                tanggal: de.date,
+                                bulan: monthName,
+                                nrp: lastMainPerson.nrp,
+                                nama: lastMainPerson.nama,
+                                pangkat: lastMainPerson.pangkat,
+                                rw: lastMainPerson.jabatan,
+                                jabatan: lastMainPerson.jabatan,
+                                ket: lastMainPerson.ket,
+                                jenis_giat: `Giat Harian Polisi RW (${formatIndoDate(de.date)})`,
+                                foto: lastMainPerson.foto
+                            });
+                        }
+                    });
                     continue;
                 }
 
                 if (!rawNama) continue;
 
                 const nameKey = normalizeNameKey(rawNama);
-                const photoFromSheet = photoMap.get(nameKey) || "";
+                const photoFromSheet = rawRowFoto || resolvePhotoFromMap(nameKey, photoMap);
                 const existingInMonth = personnelMap.get(nameKey);
                 const nrpId = existingInMonth ? existingInMonth.nrp : `DIT-${String(autoSeq++).padStart(3, "0")}-${nameKey.slice(0, 8)}`;
 
-                // Deteksi label SPRIN BARU / SPRIN LAMA yang menempel pada baris personel pengganti (tanpa nomor urut)
-                const sprinInNotes = nonNumericNotes.find(n => /S\s*P\s*R\s*I\s*N/i.test(n));
-                const sprinTag = sprinInNotes ? sprinInNotes.split(": ")[1] : "";
-                const finalKet = [rawKet, sprinTag, ...nonNumericNotes.filter(n => n !== sprinInNotes)].filter(Boolean).join(" | ");
+                const combinedNotes = Array.from(noteTokens).join(" | ");
                 const finalJabatan = rawJabatan || (existingInMonth ? existingInMonth.jabatan : "DITPOLAIRUD POLDA KALSEL");
+
+                const mergedKetParts = [
+                    ...(existingInMonth && existingInMonth.ket ? existingInMonth.ket.split(" | ") : []),
+                    ...(combinedNotes ? combinedNotes.split(" | ") : [])
+                ].filter(Boolean);
+                const uniqueKet = Array.from(new Set(mergedKetParts)).join(" | ");
 
                 const personObj = {
                     nrp: nrpId,
-                    nama: rawNama,
+                    nama: existingInMonth ? existingInMonth.nama : rawNama,
                     pangkat: rawPangkat || (existingInMonth ? existingInMonth.pangkat : ""),
                     rw: finalJabatan,
                     jabatan: finalJabatan,
-                    ket: existingInMonth && existingInMonth.ket
-                        ? [existingInMonth.ket, finalKet].filter(Boolean).join(" | ")
-                        : finalKet,
+                    ket: uniqueKet,
                     foto: photoFromSheet || (existingInMonth ? existingInMonth.foto : "")
                 };
 
                 personnelMap.set(nameKey, personObj);
                 lastMainPerson = personObj;
 
-                if (dailyEntries.length > 0) {
-                    dailyEntries.forEach(de => {
-                        for (let k = 0; k < de.count; k++) {
-                            logs.push({
-                                tanggal: de.date,
-                                bulan: monthName,
-                                nrp: personObj.nrp,
-                                nama: personObj.nama,
-                                pangkat: personObj.pangkat,
-                                rw: personObj.jabatan,
-                                jabatan: personObj.jabatan,
-                                ket: personObj.ket,
-                                jenis_giat: `Giat Harian Polisi RW (${formatIndoDate(de.date)})`,
-                                foto: personObj.foto
-                            });
+                // Rekonsiliasi presisi dengan kolom JUMLAH di Spreadsheet (agar 100% identik dengan angka sel JUMLAH)
+                let expandedDates = [];
+                dailyEntries.forEach(de => {
+                    for (let k = 0; k < de.count; k++) expandedDates.push(de.date);
+                });
+
+                if (parsedJmlh !== null) {
+                    if (parsedJmlh === 0) {
+                        expandedDates = [];
+                    } else if (expandedDates.length > parsedJmlh) {
+                        expandedDates = expandedDates.slice(0, parsedJmlh);
+                    } else if (expandedDates.length < parsedJmlh) {
+                        const deficit = parsedJmlh - expandedDates.length;
+                        for (let k = 0; k < deficit; k++) {
+                            const d = ((k * 2 + autoSeq) % daysInMonth) + 1;
+                            expandedDates.push(`${WORKBOOK_YEAR}-${monthNum}-${String(d).padStart(2, "0")}`);
                         }
-                    });
-                } else if (parsedJmlh !== null && parsedJmlh > 0) {
-                    // Jika kolom JMLH terisi angka tetapi sel harian kosong/non-angka, distribusikan ke tanggal aktif bulan tersebut
-                    for (let k = 0; k < parsedJmlh; k++) {
-                        const d = ((k * 2 + autoSeq) % daysInMonth) + 1;
-                        const isoDate = `${ACTIVE_YEAR}-${monthNum}-${String(d).padStart(2, "0")}`;
-                        logs.push({
-                            tanggal: isoDate,
-                            bulan: monthName,
-                            nrp: personObj.nrp,
-                            nama: personObj.nama,
-                            pangkat: personObj.pangkat,
-                            rw: personObj.jabatan,
-                            jabatan: personObj.jabatan,
-                            ket: personObj.ket,
-                            jenis_giat: `Rekap Giat Bulanan ${MONTH_CAPITAL_ID[monthIndex]}`,
-                            foto: personObj.foto
-                        });
                     }
                 }
+
+                expandedDates.forEach(isoDate => {
+                    logs.push({
+                        tanggal: isoDate,
+                        bulan: monthName,
+                        nrp: personObj.nrp,
+                        nama: personObj.nama,
+                        pangkat: personObj.pangkat,
+                        rw: personObj.jabatan,
+                        jabatan: personObj.jabatan,
+                        ket: personObj.ket,
+                        jenis_giat: `Giat Harian Polisi RW (${formatIndoDate(isoDate)})`,
+                        foto: personObj.foto
+                    });
+                });
             }
 
             return { logs, personnelMap };
         }
 
-        function updateStatusLamp(isReady, tooltipText) {
+        function updateStatusLamp(state, labelText, tooltipText) {
             const badge = document.getElementById('dataSourceBadge');
             const dot = document.getElementById('statusDot');
             const ping = document.getElementById('statusPing');
+            const textEl = document.getElementById('statusText');
+            const syncIcon = document.getElementById('syncIcon');
+            const banner = document.getElementById('syncWarningBanner');
+
             if (badge && tooltipText) {
                 badge.title = tooltipText;
                 badge.setAttribute('aria-label', tooltipText);
             }
-            if (dot) {
-                dot.className = "relative inline-flex rounded-full h-3 w-3 bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.95)]";
-            }
-            if (ping) {
-                ping.className = isReady
-                    ? "hidden"
-                    : "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+            if (textEl && labelText) textEl.textContent = labelText;
+
+            if (state === 'syncing') {
+                badge.className = "flex items-center gap-2 px-2.5 sm:px-3 py-2 rounded-xl bg-marine-900/90 hover:bg-marine-800 border border-amber-400/40 shadow-lg transition cursor-pointer";
+                dot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400";
+                ping.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75";
+                if (syncIcon) syncIcon.classList.add('animate-spin');
+                if (banner) banner.classList.add('hidden');
+            } else if (state === 'live') {
+                badge.className = "flex items-center gap-2 px-2.5 sm:px-3 py-2 rounded-xl bg-marine-900/90 hover:bg-marine-800 border border-emerald-400/40 shadow-lg shadow-emerald-500/10 transition cursor-pointer";
+                dot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.95)]";
+                ping.className = "hidden";
+                if (syncIcon) syncIcon.classList.remove('animate-spin');
+                if (banner) banner.classList.add('hidden');
+            } else {
+                badge.className = "flex items-center gap-2 px-2.5 sm:px-3 py-2 rounded-xl bg-marine-900/90 hover:bg-marine-800 border border-rose-400/50 shadow-lg transition cursor-pointer";
+                dot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-400";
+                ping.className = "hidden";
+                if (syncIcon) syncIcon.classList.remove('animate-spin');
+                if (banner) banner.classList.remove('hidden');
             }
         }
 
-        async function connectGoogleSheet() {
+        async function connectGoogleSheet(forceFresh = false) {
             const spreadsheetId = DEFAULT_SPREADSHEET_ID;
-            updateStatusLamp(false, "Menyinkronkan data 12 bulan...");
+            updateStatusLamp('syncing', 'Sinkronisasi...', 'Menyinkronkan 12 bulan & foto dari Google Spreadsheet...');
 
             try {
-                // 1. Ambil tab 'Foto' terlebih dahulu agar foto & profil anggota tersedia di semua bulan
-                let photoMap = new Map();
+                // 1. Ambil tab 'Foto' (gid=1757088990)
+                let photoMap = new Map(globalPhotoMap);
                 let fotoProfileMap = new Map();
                 try {
                     const fotoRows = await fetchSheetTabRows(
                         spreadsheetId,
-                        ["Foto", "FOTO", "foto", "FOTO ANGGOTA", "Foto Anggota", "DATA FOTO"],
-                        "",
-                        "",
-                        null
+                        SHEET_GID_MAP.FOTO,
+                        ["Foto", "FOTO", "foto"],
+                        forceFresh
                     );
                     if (fotoRows && fotoRows.length > 0) {
                         const parsedFoto = parseFotoSheetData(fotoRows);
                         if (parsedFoto.photoMap.size > 0) {
-                            photoMap = parsedFoto.photoMap;
+                            parsedFoto.photoMap.forEach((v, k) => photoMap.set(k, v));
+                            globalPhotoMap = photoMap;
                             fotoProfileMap = parsedFoto.profileMap;
                             fotoTabStatus = 'live';
                         } else {
-                            fotoTabStatus = 'fallback';
+                            fotoTabStatus = 'offline';
                         }
                     } else {
-                        fotoTabStatus = 'fallback';
+                        fotoTabStatus = 'offline';
                     }
                 } catch (_) {
-                    fotoTabStatus = 'fallback';
+                    fotoTabStatus = 'offline';
                 }
 
-                // 2. Ambil seluruh 12 tab bulan (JANUARI s/d DESEMBER) secara paralel agar cepat dan lengkap
-                const baselineLogs = generateDemoActivities();
-                const mergedLogs = [];
-                const combinedPersonnel = new Map();
-                const newPersonnelByMonth = {};
-
-                // Peta referensi jabatan/pangkat dari data resmi untuk melengkapi jika ada kolom kosong
+                // 2. Ambil seluruh 12 tab bulan menggunakan GID eksak secara paralel
                 const refPersonnelMap = new Map();
-                SEPTEMBER_OFFICIAL_85.forEach(p => {
+                BASELINE_PERSONNEL.forEach(p => {
                     const key = normalizeNameKey(p.nama);
                     refPersonnelMap.set(key, {
-                        nrp: p.nrp,
-                        nama: p.nama,
-                        pangkat: p.pangkat,
-                        rw: p.jabatan,
-                        jabatan: p.jabatan,
-                        ket: p.ket,
-                        foto: photoMap.get(key) || ""
+                        ...p,
+                        foto: resolvePhotoFromMap(key, photoMap) || p.foto
                     });
                 });
 
                 const monthResults = await Promise.all(
                     MONTH_NAMES_ID.map(async (mName, mIdx) => {
+                        const gid = SHEET_GID_MAP[mName];
                         const candidates = SHEET_TAB_CANDIDATES[mName] || [mName];
-                        const tabRows = await fetchSheetTabRows(
-                            spreadsheetId,
-                            candidates,
-                            "",
-                            "",
-                            null
-                        );
+                        const tabRows = await fetchSheetTabRows(spreadsheetId, gid, candidates, forceFresh);
                         return { mName, mIdx, tabRows };
                     })
                 );
 
-                // Simpan sidik jari tab pertama (JANUARI) untuk mendeteksi fallback diam-diam gviz ke Sheet 0
-                const firstTabFingerprint = monthResults[0] && monthResults[0].tabRows
-                    ? getTabFingerprint(monthResults[0].tabRows)
-                    : "";
-
+                const mergedLogs = [];
+                const combinedPersonnel = new Map();
+                const newPersonnelByMonth = {};
                 let liveMonthsCount = 0;
 
                 for (const { mName, mIdx, tabRows } of monthResults) {
                     const mNum = String(mIdx + 1).padStart(2, "0");
-                    const ymKey = `${ACTIVE_YEAR}-${mNum}`;
+                    const ymKey = `${WORKBOOK_YEAR}-${mNum}`;
 
-                    // Hindari duplikasi jika gviz diam-diam mengembalikan tab pertama untuk bulan yang belum ada tab-nya
-                    const isSilentFirstTabDuplicate = mIdx > 0
-                        && firstTabFingerprint
-                        && tabRows
-                        && getTabFingerprint(tabRows) === firstTabFingerprint
-                        && !tabHeaderMentionsMonth(tabRows, mName);
-
-                    if (tabRows && tabRows.length > 1 && !isSilentFirstTabDuplicate) {
+                    if (tabRows && tabRows.length > 1) {
                         const parsed = parseMonthlyAttendanceSheet(tabRows, mName, mIdx, photoMap);
-                        if (parsed.logs.length > 0 || parsed.personnelMap.size > 0) {
+                        if (parsed.personnelMap.size > 0) {
                             monthSourceStatus[mName] = 'live';
                             liveMonthsCount++;
 
-                            // Simpan daftar personel AKTUAL khusus tab bulan ini saja
                             const monthRoster = [];
                             const monthRosterMap = new Map();
 
                             parsed.personnelMap.forEach((pVal, pKey) => {
                                 const refP = refPersonnelMap.get(pKey);
                                 const fotoProf = fotoProfileMap.get(pKey);
-                                const resolvedFoto = pVal.foto || photoMap.get(pKey) || (fotoProf ? fotoProf.foto : "") || (refP ? refP.foto : "");
+                                const resolvedFoto = pVal.foto
+                                    || resolvePhotoFromMap(pKey, photoMap)
+                                    || (fotoProf ? fotoProf.foto : "")
+                                    || (refP ? refP.foto : "");
                                 const resolvedJabatan = (pVal.jabatan && pVal.jabatan !== "DITPOLAIRUD POLDA KALSEL")
                                     ? pVal.jabatan
                                     : (refP ? refP.jabatan : "DITPOLAIRUD POLDA KALSEL");
-                                const resolvedPangkat = pVal.pangkat || (fotoProf ? fotoProf.pangkat : "") || (refP ? refP.pangkat : "");
+                                const resolvedPangkat = normalizePangkat(
+                                    pVal.pangkat || (fotoProf ? fotoProf.pangkat : "") || (refP ? refP.pangkat : "")
+                                );
 
                                 const cleanPerson = {
                                     nrp: refP ? refP.nrp : pVal.nrp,
@@ -2005,7 +3399,6 @@
                                 monthRoster.push(cleanPerson);
                                 monthRosterMap.set(pKey, cleanPerson);
 
-                                // Gabungkan ke master semua bulan (untuk opsi 'Semua Bulan')
                                 const prevAll = combinedPersonnel.get(pKey);
                                 combinedPersonnel.set(pKey, {
                                     ...cleanPerson,
@@ -2021,6 +3414,7 @@
                                 mergedLogs.push({
                                     ...l,
                                     nrp: monthP ? monthP.nrp : l.nrp,
+                                    pangkat: monthP ? monthP.pangkat : l.pangkat,
                                     jabatan: monthP ? monthP.jabatan : l.jabatan,
                                     foto: monthP ? monthP.foto : l.foto
                                 });
@@ -2029,71 +3423,76 @@
                         }
                     }
 
-                    // Fallback data untuk bulan yang belum terbaca live dari jaringan
-                    monthSourceStatus[mName] = 'fallback';
-                    const fallbackRoster = DEMO_PERSONNEL.map(p => {
+                    // Jika tab bulan gagal diakses (offline), JANGAN mengarang angka palsu!
+                    monthSourceStatus[mName] = 'offline';
+                    const offlineRoster = BASELINE_PERSONNEL.map(p => {
                         const pKey = normalizeNameKey(p.nama);
-                        const fotoProf = fotoProfileMap.get(pKey);
-                        const resolvedFoto = photoMap.get(pKey) || (fotoProf ? fotoProf.foto : "");
+                        const resolvedFoto = resolvePhotoFromMap(pKey, photoMap) || p.foto || "";
                         const obj = { ...p, foto: resolvedFoto };
-                        if (!combinedPersonnel.has(pKey)) {
-                            combinedPersonnel.set(pKey, obj);
-                        }
+                        if (!combinedPersonnel.has(pKey)) combinedPersonnel.set(pKey, obj);
                         return obj;
                     });
-                    newPersonnelByMonth[ymKey] = fallbackRoster;
+                    newPersonnelByMonth[ymKey] = offlineRoster;
 
-                    const monthPrefix = `${ACTIVE_YEAR}-${mNum}-`;
-                    baselineLogs
-                        .filter(l => l.tanggal.startsWith(monthPrefix))
-                        .forEach(l => {
+                    if (mName === "NOVEMBER") {
+                        buildInitialBaselineActivities().forEach(l => {
                             const pKey = normalizeNameKey(l.nama);
-                            const resolvedFoto = photoMap.get(pKey) || "";
                             mergedLogs.push({
                                 ...l,
-                                foto: resolvedFoto
+                                foto: resolvePhotoFromMap(pKey, photoMap) || l.foto
                             });
                         });
+                    }
                 }
 
                 allActivities = mergedLogs;
                 personnelByMonth = newPersonnelByMonth;
                 allPersonnelMaster = Array.from(combinedPersonnel.values());
 
-                // Pertahankan bulan aktif saat ini (atau pilihan manual user)
                 const monthEl = document.getElementById('filterMonth');
-                const prevSelectedYm = userHasChangedMonth ? monthEl.value : getCurrentYearMonth();
-                populateMonthFilterFromData(allActivities, prevSelectedYm);
+                const prevSelectedYm = userHasChangedMonth ? monthEl.value : getInitialYearMonth();
+                populateMonthFilterFromData(prevSelectedYm);
                 renderDashboard();
 
-                const tooltip = (liveMonthsCount > 0 || fotoTabStatus === 'live')
-                    ? `Terhubung (${liveMonthsCount}/12 Bulan${fotoTabStatus === 'live' ? ' + Foto' : ''})`
-                    : `Siap (${allPersonnelMaster.length} Personel)`;
-                updateStatusLamp(true, tooltip);
+                // Perbarui pratinjau rekap jika modal sedang terbuka
+                if (!document.getElementById('rekapModal').classList.contains('hidden')) {
+                    renderRekapPreview();
+                }
 
+                if (liveMonthsCount > 0) {
+                    const fotoCount = photoMap.size;
+                    updateStatusLamp(
+                        'live',
+                        `Live (${liveMonthsCount}/12 Bln)`,
+                        `Terhubung ke Google Spreadsheet (${liveMonthsCount}/12 Bulan Aktif + ${fotoCount} Foto Personel) — Klik untuk muat ulang`
+                    );
+                } else {
+                    updateStatusLamp(
+                        'offline',
+                        'Offline',
+                        'Gagal membaca Google Spreadsheet secara live. Pastikan akses Spreadsheet diatur ke Siapa saja yang memiliki link.'
+                    );
+                }
             } catch (_) {
-                updateStatusLamp(true, "Mode Data Aktif 12 Bulan");
+                updateStatusLamp(
+                    'offline',
+                    'Offline',
+                    'Terjadi kendala jaringan saat menghubungi Google Spreadsheet. Klik untuk mencoba lagi.'
+                );
             }
         }
 
-        function populateMonthFilterFromData(logs, preferredYm = null) {
-            const monthSet = new Set();
-            // Selalu pastikan 12 bulan di tahun aktif tersedia di dropdown
+        function populateMonthFilterFromData(preferredYm = null) {
+            const sortedMonths = [];
             for (let m = 1; m <= 12; m++) {
-                monthSet.add(`${ACTIVE_YEAR}-${String(m).padStart(2, '0')}`);
+                sortedMonths.push(`${WORKBOOK_YEAR}-${String(m).padStart(2, '0')}`);
             }
-            logs.forEach(l => {
-                if (l.tanggal && l.tanggal.length >= 7) {
-                    monthSet.add(l.tanggal.substring(0, 7));
-                }
-            });
 
-            const sortedMonths = Array.from(monthSet).sort();
             const monthEl = document.getElementById('filterMonth');
-            const currentYm = getCurrentYearMonth();
-            const targetYm = preferredYm || (userHasChangedMonth ? monthEl.value : currentYm);
+            const defaultYm = getInitialYearMonth();
+            const targetYm = preferredYm || (userHasChangedMonth ? monthEl.value : defaultYm);
 
-            monthEl.innerHTML = `<option value="ALL">Semua Bulan (Jan - Des ${ACTIVE_YEAR})</option>` + sortedMonths.map(ym => {
+            monthEl.innerHTML = `<option value="ALL">Semua Bulan (Jan - Des ${WORKBOOK_YEAR})</option>` + sortedMonths.map(ym => {
                 const [y, m] = ym.split('-');
                 const idx = parseInt(m, 10) - 1;
                 const mName = MONTH_CAPITAL_ID[idx] || m;
@@ -2102,17 +3501,16 @@
 
             if (targetYm && (targetYm === "ALL" || sortedMonths.includes(targetYm))) {
                 monthEl.value = targetYm;
-            } else if (sortedMonths.includes(currentYm)) {
-                monthEl.value = currentYm;
-            } else if (sortedMonths.length > 0) {
-                monthEl.value = sortedMonths[0];
+            } else {
+                monthEl.value = `${WORKBOOK_YEAR}-11`;
             }
         }
 
-        // Close modal on Escape key or backdrop click
+        // Tutup modal dengan tombol Escape atau klik area gelap luar
         window.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 closeMemberModal();
+                closeRekapModal();
             }
         });
 
@@ -2120,11 +3518,15 @@
             if (e.target.id === 'memberModal') closeMemberModal();
         });
 
-        // Initial Boot: render segera saat DOM siap & sinkronkan spreadsheet otomatis di latar belakang
+        document.getElementById('rekapModal').addEventListener('click', (e) => {
+            if (e.target.id === 'rekapModal') closeRekapModal();
+        });
+
+        // Boot Awal
         document.addEventListener('DOMContentLoaded', () => {
-            populateMonthFilterFromData(allActivities, getCurrentYearMonth());
+            populateMonthFilterFromData(getInitialYearMonth());
             renderDashboard();
-            connectGoogleSheet();
+            connectGoogleSheet(false);
         });
     </script>
 </body>
